@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmacy Login</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container" style="max-width:400px; margin-top:8vh;">
+        <div class="card">
+            <h2>Pharmacy Dashboard</h2>
+            <p class="sub">Sign in once — your session lasts 24 hours.</p>
+
+            <label>Username</label>
+            <input id="username" autocomplete="username">
+
+            <label>Password</label>
+            <input id="password" type="password" autocomplete="current-password">
+
+            <div class="errbox" id="err"></div>
+
+            <button id="loginBtn" style="width:100%; margin-top:16px;">Sign in</button>
+
+            <p class="sub" style="margin-top:16px; text-align:center;">
+                <a href="/">← Back to Rx Generator</a>
+            </p>
+            <p class="sub" style="text-align:center; font-size:11.5px;">
+                demo: superadmin/super123 · subadmin/sub123 · staff/staff123
+            </p>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/login.js"></script>
+</body>
+</html>

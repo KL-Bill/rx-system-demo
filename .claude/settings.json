@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:\\\\Users\\\\My PC\\\\Documents\\\\MY CODES\")",
+      "Read(//c/Users/My PC/Documents/MY CODES/**)",
+      "Bash(npm install *)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3142 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"cleared\")",
+      "Bash(node --check src/public/js/rx.js)",
+      "Bash(PORT=3145 node src/server.js)",
+      "Bash(curl -s http://localhost:3145/js/rx.js)",
+      "Bash(curl -s http://localhost:3145/)",
+      "Bash(kill %1)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3145 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"cleared\")",
+      "Bash(mkdir -p \"c:/Users/My PC/Documents/MY CODES/rx-system/.proposal_build\")",
+      "Bash(npm init *)",
+      "Bash(node -e \"console.log\\('docx version', require\\('docx/package.json'\\).version\\)\")",
+      "Bash(node generate.js)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const b=fs.readFileSync\\('RX-System_Proposal_and_Quotation.docx'\\);console.log\\('zip signature OK:', b[0]===0x50&&b[1]===0x4B\\);const s=b.toString\\('latin1'\\);['word/document.xml','[Content_Types].xml','word/styles.xml'].forEach\\(f=>console.log\\(' contains', f+':', s.includes\\(f\\)\\)\\)\")",
+      "Read(//c/Users/My PC/Desktop/**)"
+    ]
+  }
+}

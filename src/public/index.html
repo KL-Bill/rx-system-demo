@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rx Generator</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/print.css">
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand">℞ Rx Generator <small>nurse station</small></div>
+        <div class="right">
+            <a href="/login">Pharmacy login →</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="layout">
+            <!-- builder -->
+            <div class="card">
+                <h2>New Prescription</h2>
+                <p class="sub">Add medicines, set quantities, then print. Out-of-stock and new medicines are allowed.</p>
+
+                <label>Station / Department</label>
+                <select id="station"></select>
+                <div id="stationNote" class="sub" style="margin-top:6px"></div>
+
+                <div class="row">
+                    <div>
+                        <label>Patient name</label>
+                        <input id="patient" placeholder="Juan Dela Cruz">
+                    </div>
+                    <div>
+                        <label>Prescriber (Dr.)</label>
+                        <input id="prescriber" placeholder="Dr. ...">
+                    </div>
+                </div>
+
+                <label>Address</label>
+                <input id="address" placeholder="optional">
+
+                <div class="row">
+                    <div>
+                        <label>Age</label>
+                        <input id="age" placeholder="optional">
+                    </div>
+                    <div>
+                        <label>Sex</label>
+                        <input id="sex" placeholder="M / F">
+                    </div>
+                </div>
+
+                <label>Add medicine</label>
+                <div class="search-wrap">
+                    <input id="search" autocomplete="off" placeholder="Type a medicine name...">
+                    <div id="suggestions" class="suggestions" style="display:none"></div>
+                </div>
+
+                <ul id="items" class="items"></ul>
+                <div id="items-empty" class="empty">No medicines added yet.</div>
+
+                <div class="row" style="margin-top:16px;">
+                    <button id="printBtn" style="flex:2">Print Prescription</button>
+                    <button id="clearBtn" class="ghost" type="button">New patient</button>
+                </div>
+            </div>
+
+            <!-- live preview -->
+            <div class="card">
+                <h2>Preview</h2>
+                <p class="sub">This is roughly how the quarter-sheet will print.</p>
+                <div id="preview"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- new-med warning modal -->
+    <div class="modal-bg" id="newMedModal">
+        <div class="modal">
+            <h3>Medicine not in database</h3>
+            <div class="warnbox" id="newMedMsg"></div>
+            <p class="sub">It will still be added to this prescription and flagged for the pharmacy to review later.</p>
+            <div class="row">
+                <div><label>Strength (optional)</label><input id="nmStrength" placeholder="500mg"></div>
+                <div><label>Form (optional)</label><input id="nmForm" placeholder="Tablet"></div>
+            </div>
+            <div class="actions">
+                <button class="ghost" id="nmCancel">Cancel</button>
+                <button id="nmConfirm">Add anyway</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- print target -->
+    <div id="print-area"></div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/rx.js"></script>
+</body>
+</html>

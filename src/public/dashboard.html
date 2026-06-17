@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmacy Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand">Pharmacy Dashboard <small id="scopeLabel">— Overall</small></div>
+        <div class="right">
+            <span class="muted" id="whoami"></span>
+            <button class="ghost sm" id="logout">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="stationchips" id="chips"></div>
+
+        <div class="kpis">
+            <div class="kpi"><div class="n" id="kp-rx">0</div><div class="l">Prescriptions</div></div>
+            <div class="kpi"><div class="n" id="kp-items">0</div><div class="l">Items prescribed</div></div>
+            <div class="kpi"><div class="n" id="kp-pending">0</div><div class="l">Pending review</div></div>
+            <div class="kpi"><div class="n" id="kp-low">0</div><div class="l">Low stock</div></div>
+        </div>
+
+        <div class="section">
+            <h2>Most in-demand — not in database</h2>
+            <div class="card">
+                <table>
+                    <thead><tr><th>Medicine</th><th>Demand</th><th>Total qty</th><th>Departments</th><th>Score</th><th></th></tr></thead>
+                    <tbody id="tbl-pending"></tbody>
+                </table>
+                <div class="empty" id="empty-pending" style="display:none">Nothing waiting for review. 🎉</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Supply vs demand priority</h2>
+            <p class="sub" style="margin:-4px 0 10px">Score = demand + unmet demand ×2. Higher means harder to keep supplied.</p>
+            <div class="card">
+                <table>
+                    <thead><tr><th>Medicine</th><th>In DB</th><th>Stock</th><th>Demand</th><th>Unmet</th><th>Fulfillment</th><th>Score</th></tr></thead>
+                    <tbody id="tbl-priority"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Low stock</h2>
+            <div class="card">
+                <table>
+                    <thead><tr><th>Medicine</th><th>Stock</th><th>Demand</th><th>Fulfillment</th><th></th></tr></thead>
+                    <tbody id="tbl-low"></tbody>
+                </table>
+                <div class="empty" id="empty-low" style="display:none">No medicines are low.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- review / edit modal -->
+    <div class="modal-bg" id="reviewModal">
+        <div class="modal">
+            <h3 id="rmTitle">Review medicine</h3>
+            <p class="sub" id="rmSub"></p>
+            <div class="row">
+                <div><label>Name</label><input id="rmName"></div>
+            </div>
+            <div class="row">
+                <div><label>Strength</label><input id="rmStrength"></div>
+                <div><label>Form</label><input id="rmForm"></div>
+                <div><label>Stock</label><input id="rmStock" type="number" min="0"></div>
+            </div>
+            <div id="rmAuthWrap" style="display:none">
+                <div class="warnbox">Staff accounts need a superadmin or subadmin password to save changes.</div>
+                <label>Authorizing password</label>
+                <input id="rmAuth" type="password">
+            </div>
+            <div class="errbox" id="rmErr"></div>
+            <div class="actions">
+                <button class="ghost" id="rmCancel">Cancel</button>
+                <button id="rmSave">Confirm &amp; add to database</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

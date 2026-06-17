@@ -1,0 +1,67 @@
+/* Printable prescription — styled after the Tagum Medical City Rx pad. */
+#print-area { display: none; }
+
+.rx-form {
+    width: 100%;
+    max-width: 4.7in;
+    box-sizing: border-box;
+    border: 1.5px solid #000;
+    padding: 10px 12px 14px;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #000;
+    font-size: 11px;
+    line-height: 1.3;
+    background: #fff;
+}
+
+/* header */
+.rx-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #000; padding-bottom: 5px; }
+.rx-logo {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    border: 2px solid #1a7a3a; color: #1a7a3a; font-size: 18px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+}
+.rx-htext { line-height: 1.15; }
+.rx-hosp { font-weight: bold; font-size: 14px; letter-spacing: .02em; }
+.rx-oper { font-size: 8px; font-style: italic; }
+.rx-addr { font-size: 9px; }
+
+/* patient fields */
+.rx-date { text-align: right; margin: 7px 0 3px; }
+.rx-fld { margin: 3px 0; }
+.rx-date u, .rx-fld u, .rx-foot u {
+    text-decoration: none; border-bottom: 1px solid #000; padding: 0 6px;
+}
+
+/* body: Rx symbol + labels on the left, meds on the right */
+.rx-body { display: flex; gap: 10px; margin-top: 8px; min-height: 1.7in; }
+.rx-left { flex: none; width: 88px; }
+.rx-symbol { font-size: 44px; font-weight: bold; font-family: Georgia, "Times New Roman", serif; line-height: .9; }
+.rx-tag { font-size: 9px; font-weight: bold; margin-top: 16px; }
+.rx-meds { flex: 1; padding-top: 4px; }
+
+.med { display: flex; gap: 6px; margin-bottom: 9px; }
+.med .num {
+    flex: none; width: 15px; height: 15px; margin-top: 2px;
+    border: 1px solid #000; border-radius: 50%;
+    font-size: 9px; display: flex; align-items: center; justify-content: center;
+}
+.mtext { flex: 1; }
+.mname { font-size: 12.5px; }
+.mstr { font-size: 11px; }
+.mqty { margin-left: 10px; white-space: nowrap; }
+.med-empty { color: #555; font-style: italic; }
+
+/* footer */
+.rx-signa { margin-top: 8px; font-size: 10px; }
+.rx-foot { margin-top: 20px; text-align: right; }
+.rx-foot .docline { margin-bottom: 3px; }
+.rx-foot .docline u { padding: 0 30px; }
+.rx-foot .docfld { font-size: 10px; margin-top: 2px; }
+
+@media print {
+    body * { visibility: hidden; }
+    #print-area, #print-area * { visibility: visible; }
+    #print-area { display: block; position: absolute; left: 0; top: 0; }
+    @page { margin: 0.3in; }
+}
