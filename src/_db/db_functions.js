@@ -68,15 +68,16 @@ const addRxItem = (item) => {
     return it;
 };
 
-const getRxItems = ({ stationId } = {}) => {
-    const items = db().rxItems;
-    return stationId ? items.filter((i) => i.stationId === stationId) : items;
-};
+const inRange = (ts, from, to) =>
+    (from == null || ts >= from) && (to == null || ts <= to);
 
-const getRxRecords = ({ stationId } = {}) => {
-    const records = db().rxRecords;
-    return stationId ? records.filter((r) => r.stationId === stationId) : records;
-};
+const getRxItems = ({ stationId, from, to } = {}) =>
+    db().rxItems.filter((i) =>
+        (!stationId || i.stationId === stationId) && inRange(i.createdAt, from, to));
+
+const getRxRecords = ({ stationId, from, to } = {}) =>
+    db().rxRecords.filter((r) =>
+        (!stationId || r.stationId === stationId) && inRange(r.createdAt, from, to));
 
 // ---------- audit ----------
 const addAudit = (entry) => {

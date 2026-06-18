@@ -1,0 +1,22 @@
+.controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px; }
+.controls > div { flex: 0 0 auto; }
+.controls label { margin-top: 0; }
+.controls input, .controls select { min-width: 170px; }
+.controls .spacer { flex: 1 1 auto; }
+
+.report-header { text-align: center; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 16px; }
+.rh-title { font-size: 18px; font-weight: 700; letter-spacing: .03em; }
+.rh-sub { font-size: 13px; color: var(--muted); }
+.rh-meta { font-size: 12px; margin-top: 6px; }
+
+.rkpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+
+@media print {
+    .topbar, .no-print { display: none !important; }
+    body { background: #fff; font-size: 12px; }
+    .container { padding: 0; max-width: none; }
+    .report-card { box-shadow: none; border: none; padding: 0; }
+    .kpi { border: 1px solid #ccc; box-shadow: none; }
+    a { color: #000; text-decoration: none; }
+    @page { margin: 0.5in; }
+}

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports — Pharmacy</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/report.css">
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand">Reports <small>Pharmacy</small></div>
+        <div class="right">
+            <a href="/dashboard">← Dashboard</a>
+            <span class="muted" id="whoami"></span>
+            <button class="ghost sm" id="logout">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="controls card no-print">
+            <div>
+                <label>Station / Department</label>
+                <select id="station"><option value="">Overall</option></select>
+            </div>
+            <div>
+                <label>From</label>
+                <input id="from" type="date">
+            </div>
+            <div>
+                <label>To</label>
+                <input id="to" type="date">
+            </div>
+            <div class="spacer"></div>
+            <div><button id="genBtn">Generate</button></div>
+            <div><button id="csvBtn" class="ghost">Export CSV</button></div>
+            <div><button id="printBtn" class="ghost">Print / PDF</button></div>
+        </div>
+
+        <div id="report" class="card report-card">
+            <div class="report-header">
+                <div class="rh-title">TAGUM MEDICAL CITY</div>
+                <div class="rh-sub">Medicine Demand &amp; Supply Report</div>
+                <div class="rh-meta" id="reportMeta"></div>
+            </div>
+
+            <div class="rkpis" id="reportKpis"></div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Medicine</th><th>In DB</th><th>Stock</th>
+                        <th>Demand</th><th>Total Qty</th><th>Unmet</th>
+                        <th>Fulfillment</th><th>Score</th>
+                    </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+            </table>
+            <div class="empty" id="reportEmpty" style="display:none">No prescriptions in this period.</div>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/reports.js"></script>
+</body>
+</html>
