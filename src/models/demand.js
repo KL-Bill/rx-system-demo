@@ -24,10 +24,10 @@ const statusInfo = (reason, key) => {
     return { status, statusDate: rec ? rec.statusDate : null, resolved: status === 'added_to_formulary' || status === 'restocked' };
 };
 
-const tally = (map, name, qty) => {
+const tally = (map, name, qty, date) => {
     const k = name || '—';
-    const e = map.get(k) || { name: k, prescriptions: 0, volume: 0 };
-    e.prescriptions += 1; e.volume += qty;
+    const e = map.get(k) || { name: k, prescriptions: 0, volume: 0, lastDate: 0 };
+    e.prescriptions += 1; e.volume += qty; e.lastDate = Math.max(e.lastDate, date || 0);
     map.set(k, e);
 };
 const listOf = (map) => [...map.values()].sort((a, b) => b.volume - a.volume || b.prescriptions - a.prescriptions);
@@ -54,8 +54,8 @@ function aggregate({ reason, from, to, department } = {}) {
         g.volume += it.quantity;
         if (rx.department) g.departments.add(rx.department);
         if (rx.doctor && rx.doctor.name) g.doctors.add(rx.doctor.name);
-        tally(g.byDept, rx.department, it.quantity);
-        tally(g.byDoctor, rx.doctor && rx.doctor.name, it.quantity);
+        tally(g.byDept, rx.department, it.quantity, rx.createdAt);
+        tally(g.byDoctor, rx.doctor && rx.doctor.name, it.quantity, rx.createdAt);
         g.lastDate = Math.max(g.lastDate, rx.createdAt);
     }
     return [...groups.values()].map((g) => ({

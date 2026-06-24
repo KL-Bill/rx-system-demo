@@ -75,30 +75,31 @@
         return status === 'restocked' ? '' : '<button class="green" data-action="restocked">Mark Restocked</button>';
     }
 
-    async function openDetail(row) {
-        const res = await api(`/api/pharmacy/detail?reason=${encodeURIComponent(row.reason)}&key=${encodeURIComponent(row.key)}`);
-        if (!res.ok) return;
-        const d = res.data.detail;
-        current = { row, d };
-        $('dTitle').textContent = d.label;
-        $('dSub').innerHTML = reasonBadge(row.reason) + ' ' + statusBadge(d);
-        $('d-rx').textContent = d.prescriptions;
-        $('d-vol').textContent = d.volume;
-        $('d-dept').textContent = d.departments.length;
-        $('dRows').innerHTML = d.rows.map((r) => `<tr><td>${fmtD(r.date)}</td><td>${escapeHtml(r.department)}</td><td>${escapeHtml(drName(r.doctor) || '—')}</td><td>${r.quantity}</td></tr>`).join('');
+    function openDetail(row) {
+        current = { row };
+        $('dTitle').textContent = row.label;
+        $('dSub').innerHTML = reasonBadge(row.reason) + ' ' + statusBadge(row);
+        $('d-rx').textContent = row.prescriptions;
+        $('d-vol').textContent = row.volume;
+        $('d-dept').textContent = row.departments.length;
+        // aggregated by doctor (collapses repeat prescriptions), most recent first
+        const docs = [...row.byDoctor].sort((a, b) => b.lastDate - a.lastDate);
+        $('dRows').innerHTML = docs.map((x) => `<tr><td>${escapeHtml(drName(x.name))}</td><td>${x.prescriptions}</td><td>${x.volume}</td><td>${fmtD(x.lastDate)}</td></tr>`).join('');
+        const deps = [...row.byDepartment].sort((a, b) => b.lastDate - a.lastDate);
+        $('dDept').innerHTML = deps.map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${x.prescriptions}</td><td>${x.volume}</td></tr>`).join('');
         $('dAuthWrap').style.display = isStaff ? 'block' : 'none';
         $('dAuth').value = '';
         $('dErr').classList.remove('show');
-        $('dActions').innerHTML = actionButtons(row.reason, d.status);
+        $('dActions').innerHTML = actionButtons(row.reason, row.status);
         $('dActions').querySelectorAll('button').forEach((b) => { b.onclick = () => doStatus(b.dataset.action); });
         $('detailModal').classList.add('show');
     }
 
     async function doStatus(action) {
-        const { row, d } = current;
+        const { row } = current;
         const body = {
             key: row.key, reason: row.reason, action,
-            drug: { label: d.label, generic: d.generic, brand: d.brand, form: d.form, strength: d.strength },
+            drug: { label: row.label, generic: row.generic, brand: row.brand, form: row.form, strength: row.strength },
         };
         if (isStaff) body.authorizerPassword = $('dAuth').value;
         const res = await api('/api/pharmacy/status', { body });
