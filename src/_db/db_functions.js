@@ -1,108 +1,92 @@
 const { db, save, newId } = require('./store');
 
+const norm = (x) => String(x || '').trim().toLowerCase();
+// stable identity for a prescribed product, used to group demand and key review status
+const drugKey = (m) => [m.genericName, m.brandName, m.formName, m.strength].map(norm).join('|');
+
 // ---------- users ----------
-const getUserByUsername = (username) =>
-    db().users.find((u) => u.username === username) || null;
-
+const getUserByUsername = (username) => db().users.find((u) => u.username === username) || null;
 const getUserById = (id) => db().users.find((u) => u.id === id) || null;
+const getAdmins = () => db().users.filter((u) => u.role === 'superadmin' || u.role === 'subadmin');
 
-const getAdmins = () =>
-    db().users.filter((u) => u.role === 'superadmin' || u.role === 'subadmin');
-
-// ---------- stations ----------
+// ---------- stations / doctors ----------
 const getStations = () => db().stations;
 const getStation = (id) => db().stations.find((s) => s.id === id) || null;
+const getDoctors = () => db().doctors;
 
-// ---------- meds ----------
-const getAllMeds = () => db().meds;
-const getMed = (id) => db().meds.find((m) => m.id === id) || null;
+// ---------- catalog (generic -> brands -> forms -> strengths) ----------
+const strengthLabel = (s) => s.label || (s.value != null ? `${s.value}${s.unit}` : (s.unit || ''));
+const getGenerics = () => db().generics;
 
-const findMedByName = (name) =>
-    db().meds.find((m) => m.name.trim().toLowerCase() === name.trim().toLowerCase()) || null;
-
-const searchMeds = (q) => {
-    const meds = db().meds;
-    if (!q) return meds;
-    const needle = q.trim().toLowerCase();
-    return meds.filter((m) => m.name.toLowerCase().includes(needle));
+const getCombos = () => {
+    const out = [];
+    for (const g of db().generics) {
+        for (const b of g.brands || []) {
+            for (const f of b.forms || []) {
+                for (const s of f.strengths || []) {
+                    out.push({
+                        generic: g.genericName, brand: b.brandName, form: f.formName,
+                        strength: strengthLabel(s), value: s.value, unit: s.unit, nonPndf: !!s.nonPndf,
+                    });
+                }
+            }
+        }
+    }
+    return out;
 };
 
-// create a new med that a nurse prescribed but isn't in the database yet
-const addPendingMed = ({ name, strength, form }) => {
-    const med = {
-        id: newId('med'),
-        name: name.trim(),
-        strength: strength || '',
-        form: form || '',
-        unit: form || '',
-        stock: null,
-        inDatabase: false,
-        status: 'pending',
-        createdAt: Date.now(),
-    };
-    db().meds.push(med);
+const comboExists = ({ generic, brand, form, strength }) => {
+    const eq = (a, b) => norm(a) === norm(b);
+    return getCombos().some((c) =>
+        eq(c.generic, generic) && eq(c.brand, brand) && eq(c.form, form) && eq(c.strength, strength));
+};
+
+// add a medicine into the Formulary, creating generic/brand/form/strength as needed
+const addToCatalog = ({ genericName, brandName, formName, value, unit }) => {
+    const eq = (a, b) => norm(a) === norm(b);
+    const generics = db().generics;
+    let g = generics.find((x) => eq(x.genericName, genericName));
+    if (!g) { g = { id: newId('g'), genericName, brands: [] }; generics.push(g); }
+    let b = (g.brands ||= []).find((x) => eq(x.brandName, brandName));
+    if (!b) { b = { id: newId('b'), brandName: brandName || '', forms: [] }; g.brands.push(b); }
+    let f = (b.forms ||= []).find((x) => eq(x.formName, formName));
+    if (!f) { f = { id: newId('f'), formName, strengths: [] }; b.forms.push(f); }
+    const exists = (f.strengths ||= []).some((s) => Number(s.value) === Number(value) && eq(s.unit, unit));
+    if (!exists) {
+        const v = value != null && value !== '' ? Number(value) : null;
+        f.strengths.push({ id: newId('s'), value: v, unit, label: v != null ? `${v}${unit}` : (unit || ''), nonPndf: false });
+    }
     save();
-    return med;
 };
 
-const updateMed = (id, edits) => {
-    const med = getMed(id);
-    if (!med) return null;
-    Object.assign(med, edits);
-    save();
-    return med;
-};
-
-// ---------- rx ----------
-const addRxRecord = (record) => {
+// ---------- prescriptions ----------
+const addPrescription = (record) => {
     const rx = { id: newId('rx'), createdAt: Date.now(), ...record };
-    db().rxRecords.push(rx);
+    db().prescriptions.push(rx);
     save();
     return rx;
 };
+const getPrescriptions = () => db().prescriptions;
 
-const addRxItem = (item) => {
-    const it = { id: newId('item'), createdAt: Date.now(), ...item };
-    db().rxItems.push(it);
+// ---------- review status ----------
+const statusKey = (reason, key) => `${reason}::${key}`;
+const getStatus = (reason, key) => db().reviewStatus[statusKey(reason, key)] || null;
+const setStatus = (reason, key, rec) => {
+    db().reviewStatus[statusKey(reason, key)] = { ...rec, at: Date.now() };
     save();
-    return it;
+    return db().reviewStatus[statusKey(reason, key)];
 };
-
-const inRange = (ts, from, to) =>
-    (from == null || ts >= from) && (to == null || ts <= to);
-
-const getRxItems = ({ stationId, from, to } = {}) =>
-    db().rxItems.filter((i) =>
-        (!stationId || i.stationId === stationId) && inRange(i.createdAt, from, to));
-
-const getRxRecords = ({ stationId, from, to } = {}) =>
-    db().rxRecords.filter((r) =>
-        (!stationId || r.stationId === stationId) && inRange(r.createdAt, from, to));
 
 // ---------- audit ----------
-const addAudit = (entry) => {
-    db().audit.unshift({ id: newId('aud'), at: Date.now(), ...entry });
-    save();
-};
-
+const addAudit = (entry) => { db().audit.unshift({ id: newId('aud'), at: Date.now(), ...entry }); save(); };
 const getAudit = () => db().audit;
 
 module.exports = {
-    getUserByUsername,
-    getUserById,
-    getAdmins,
-    getStations,
-    getStation,
-    getAllMeds,
-    getMed,
-    findMedByName,
-    searchMeds,
-    addPendingMed,
-    updateMed,
-    addRxRecord,
-    addRxItem,
-    getRxItems,
-    getRxRecords,
-    addAudit,
-    getAudit,
+    norm, drugKey,
+    getUserByUsername, getUserById, getAdmins,
+    getStations, getStation, getDoctors,
+    strengthLabel, getGenerics, getCombos, comboExists, addToCatalog,
+    addPrescription, getPrescriptions,
+    getStatus, setStatus,
+    addAudit, getAudit,
 };

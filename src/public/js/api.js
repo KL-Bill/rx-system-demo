@@ -16,3 +16,10 @@ function escapeHtml(s) {
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
     ));
 }
+
+// prefix a doctor name with "Dr." for display (no double-prefix; leaves blanks/placeholders alone)
+function drName(name) {
+    name = String(name || '').trim();
+    if (!name || name === '—') return name;
+    return /^dr\.?\s/i.test(name) ? name : 'Dr. ' + name;
+}

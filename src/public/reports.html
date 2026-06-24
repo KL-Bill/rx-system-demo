@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reports — Pharmacy</title>
+    <title>Reports — TMC Pharmacy</title>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="/css/report.css">
 </head>
 <body>
     <div class="topbar">
-        <div class="brand">Reports <small>Pharmacy</small></div>
+        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Reports</div>
         <div class="right">
-            <a href="/dashboard">← Dashboard</a>
+            <a href="/dashboard">← Review</a>
             <span class="muted" id="whoami"></span>
             <button class="ghost sm" id="logout">Logout</button>
         </div>
@@ -20,17 +20,19 @@
     <div class="container">
         <div class="controls card no-print">
             <div>
-                <label>Station / Department</label>
-                <select id="station"><option value="">Overall</option></select>
+                <label>Show</label>
+                <select id="reason">
+                    <option value="both">Both reasons</option>
+                    <option value="not_in_formulary">Not in Formulary</option>
+                    <option value="out_of_stock">Out of stock</option>
+                </select>
             </div>
             <div>
-                <label>From</label>
-                <input id="from" type="date">
+                <label>Department</label>
+                <select id="department"><option value="all">All departments</option></select>
             </div>
-            <div>
-                <label>To</label>
-                <input id="to" type="date">
-            </div>
+            <div><label>From</label><input id="from" type="date"></div>
+            <div><label>To</label><input id="to" type="date"></div>
             <div class="spacer"></div>
             <div><button id="genBtn">Generate</button></div>
             <div><button id="csvBtn" class="ghost">Export CSV</button></div>
@@ -39,22 +41,20 @@
 
         <div id="report" class="card report-card">
             <div class="report-header">
-                <div class="rh-title">TAGUM MEDICAL CITY</div>
-                <div class="rh-sub">Medicine Demand &amp; Supply Report</div>
-                <div class="rh-meta" id="reportMeta"></div>
+                <img src="/img/logo.jpg" alt="TMC" class="rh-logo">
+                <div>
+                    <div class="rh-title">TAGUM MEDICAL CITY</div>
+                    <div class="rh-sub">High-Demand Drugs — Not in Formulary &amp; Out of Stock</div>
+                    <div class="rh-meta" id="reportMeta"></div>
+                </div>
             </div>
 
             <div class="rkpis" id="reportKpis"></div>
 
-            <table>
+            <table id="reportTable">
                 <thead>
-                    <tr>
-                        <th>Medicine</th><th>In DB</th><th>Stock</th>
-                        <th>Demand</th><th>Total Qty</th><th>Unmet</th>
-                        <th>Fulfillment</th><th>Score</th>
-                    </tr>
+                    <tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th></tr>
                 </thead>
-                <tbody id="reportBody"></tbody>
             </table>
             <div class="empty" id="reportEmpty" style="display:none">No prescriptions in this period.</div>
         </div>

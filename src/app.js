@@ -14,7 +14,6 @@ const { authenticateApi } = require('./middlewares/auth.js');
 app.use('/api/auth',      require('./routers/auth.js'));        // public (login)
 app.use('/api/rx',        require('./routers/rx.js'));          // public (nurses, no login)
 app.use('/api/pharmacy',  authenticateApi, require('./routers/pharmacy.js'));   // protected
-app.use('/api/dashboard', authenticateApi, require('./routers/dashboard.js'));  // protected
 app.use('/api/report',    authenticateApi, require('./routers/report.js'));     // protected
 
 // ===== static frontend =====

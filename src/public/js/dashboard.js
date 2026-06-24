@@ -1,145 +1,111 @@
 (async function () {
     const $ = (id) => document.getElementById(id);
-
-    // ----- auth gate -----
     const me = await api('/api/auth/me');
     if (!me.ok) { window.location.href = '/login'; return; }
     const user = me.data.user;
     const isStaff = user.role === 'staff';
     $('whoami').textContent = `${user.name} · ${user.role}`;
-
     $('logout').onclick = async () => { await api('/api/auth/logout', { body: {} }); window.location.href = '/'; };
 
-    let currentStation = ''; // '' = overall
-    let stations = [];
+    let reason = 'both', department = 'all', allReview = [], current = null;
+    const FILTERS = [['both', 'All'], ['not_in_formulary', 'Not in Formulary'], ['out_of_stock', 'Out of stock']];
 
-    // ----- station chips -----
-    function renderChips() {
-        const chips = [{ id: '', name: 'Overall' }, ...stations];
-        $('chips').innerHTML = chips.map((s) =>
-            `<div class="chip ${s.id === currentStation ? 'active' : ''}" data-id="${s.id}">${escapeHtml(s.name)}</div>`
-        ).join('');
-        $('chips').querySelectorAll('.chip').forEach((c) => {
-            c.onclick = () => { currentStation = c.dataset.id; load(); };
-        });
-    }
+    // department options
+    const st = await api('/api/rx/stations');
+    [...new Set((st.data.stations || []).map((s) => s.department))].forEach((d) => {
+        const o = document.createElement('option'); o.value = d; o.textContent = d; $('department').appendChild(o);
+    });
+    $('department').onchange = () => { department = $('department').value; load(); };
+    const fmtD = (t) => (t ? new Date(t).toLocaleDateString() : '');
 
-    // ----- load + render dashboard -----
-    async function load() {
-        const q = currentStation ? '?station=' + encodeURIComponent(currentStation) : '';
-        const res = await api('/api/dashboard' + q);
-        if (!res.ok) { window.location.href = '/login'; return; }
-        const d = res.data.data;
+    const reasonBadge = (r) => r === 'not_in_formulary'
+        ? '<span class="badge navy">Not in Formulary</span>'
+        : '<span class="badge amber">Out of stock</span>';
 
-        stations = d.stations;
-        renderChips();
-        $('scopeLabel').textContent = d.scope ? '— ' + d.scope.name : '— Overall';
-
-        $('kp-rx').textContent = d.totals.prescriptions;
-        $('kp-items').textContent = d.totals.itemsPrescribed;
-        $('kp-pending').textContent = d.totals.pendingReview;
-        $('kp-low').textContent = d.totals.lowStockCount;
-
-        // pending review
-        $('empty-pending').style.display = d.mostInDemandNotInDb.length ? 'none' : 'block';
-        $('tbl-pending').innerHTML = d.mostInDemandNotInDb.map((m) => `
-            <tr>
-                <td>${escapeHtml(m.name)} <span class="muted">${escapeHtml(m.strength)} ${escapeHtml(m.form)}</span></td>
-                <td>${m.demand}</td>
-                <td>${m.qty}</td>
-                <td class="muted">${escapeHtml((m.departments || []).join(', ') || '—')}</td>
-                <td><span class="badge red">${m.score}</span></td>
-                <td><button class="sm" data-review="${m.id}">Review</button></td>
-            </tr>`).join('');
-
-        // priority
-        $('tbl-priority').innerHTML = d.priority.map((m) => `
-            <tr>
-                <td>${escapeHtml(m.name)} <span class="muted">${escapeHtml(m.strength)}</span></td>
-                <td>${m.inDatabase ? '<span class="badge green">yes</span>' : '<span class="badge amber">no</span>'}</td>
-                <td>${m.stock == null ? '—' : m.stock}</td>
-                <td>${m.demand}</td>
-                <td>${m.unmet}</td>
-                <td>${fulfillBadge(m.fulfillment)}</td>
-                <td><b>${m.score}</b></td>
-            </tr>`).join('');
-
-        // low stock
-        $('empty-low').style.display = d.lowStock.length ? 'none' : 'block';
-        $('tbl-low').innerHTML = d.lowStock.map((m) => `
-            <tr>
-                <td>${escapeHtml(m.name)} <span class="muted">${escapeHtml(m.strength)}</span></td>
-                <td><span class="badge ${m.stock <= 5 ? 'red' : 'amber'}">${m.stock}</span></td>
-                <td>${m.demand}</td>
-                <td>${fulfillBadge(m.fulfillment)}</td>
-                <td><button class="sm ghost" data-edit="${m.id}">Edit stock</button></td>
-            </tr>`).join('');
-
-        wireRowButtons(d);
-    }
-
-    function fulfillBadge(pct) {
-        const cls = pct >= 80 ? 'green' : pct >= 50 ? 'amber' : 'red';
-        return `<span class="badge ${cls}">${pct}%</span>`;
-    }
-
-    // ----- review / edit modal -----
-    const modal = $('reviewModal');
-    let editingId = null;
-    let mode = 'confirm'; // 'confirm' (pending med) or 'edit' (existing)
-
-    function wireRowButtons(d) {
-        document.querySelectorAll('[data-review]').forEach((b) => {
-            b.onclick = () => {
-                const m = d.mostInDemandNotInDb.find((x) => x.id === b.dataset.review);
-                openModal('confirm', m);
-            };
-        });
-        document.querySelectorAll('[data-edit]').forEach((b) => {
-            b.onclick = () => {
-                const m = d.lowStock.find((x) => x.id === b.dataset.edit);
-                openModal('edit', m);
-            };
-        });
-    }
-
-    function openModal(m, med) {
-        mode = m;
-        editingId = med.id;
-        $('rmTitle').textContent = m === 'confirm' ? 'Confirm new medicine' : 'Edit medicine';
-        $('rmSub').textContent = m === 'confirm'
-            ? 'Check the details, set the starting stock, then add it to the database.'
-            : 'Update the medicine details.';
-        $('rmSave').textContent = m === 'confirm' ? 'Confirm & add to database' : 'Save changes';
-        $('rmName').value = med.name || '';
-        $('rmStrength').value = med.strength || '';
-        $('rmForm').value = med.form || '';
-        $('rmStock').value = med.stock == null ? '' : med.stock;
-        $('rmAuthWrap').style.display = isStaff ? 'block' : 'none';
-        $('rmAuth').value = '';
-        $('rmErr').classList.remove('show');
-        modal.classList.add('show');
-    }
-
-    $('rmCancel').onclick = () => modal.classList.remove('show');
-
-    $('rmSave').onclick = async () => {
-        const body = {
-            name: $('rmName').value.trim(),
-            strength: $('rmStrength').value.trim(),
-            form: $('rmForm').value.trim(),
-            stock: $('rmStock').value,
-        };
-        if (isStaff) body.authorizerPassword = $('rmAuth').value;
-
-        const url = mode === 'confirm'
-            ? `/api/pharmacy/meds/${editingId}/confirm`
-            : `/api/pharmacy/meds/${editingId}`;
-        const res = await api(url, { method: mode === 'confirm' ? 'POST' : 'PUT', body });
-
-        if (res.ok) { modal.classList.remove('show'); load(); }
-        else { $('rmErr').textContent = res.data.message || 'Could not save'; $('rmErr').classList.add('show'); }
+    const statusBadge = (row) => {
+        if (row.status === 'added_to_formulary') return `<span class="badge green">Added to Formulary</span> <span class="muted">${fmtD(row.statusDate)}</span>`;
+        if (row.status === 'restocked') return `<span class="badge green">Restocked</span> <span class="muted">${fmtD(row.statusDate)}</span>`;
+        if (row.status === 'under_therapeutics') return '<span class="badge amber">Under Therapeutics</span>';
+        return '<span class="badge gray">Pending</span>';
     };
 
+    function renderFilters() {
+        $('filters').innerHTML = FILTERS.map(([v, l]) => `<div class="chip ${v === reason ? 'active' : ''}" data-v="${v}">${l}</div>`).join('');
+        $('filters').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { reason = c.dataset.v; render(); }; });
+    }
+
+    async function load() {
+        const q = department !== 'all' ? '?department=' + encodeURIComponent(department) : '';
+        const res = await api('/api/pharmacy/review' + q);
+        if (!res.ok) { window.location.href = '/login'; return; }
+        allReview = res.data.review;
+        render();
+    }
+
+    function render() {
+        renderFilters();
+        const active = allReview.filter((r) => !r.resolved);
+        $('kp-total').textContent = active.length;
+        $('kp-nif').textContent = active.filter((r) => r.reason === 'not_in_formulary').length;
+        $('kp-oos').textContent = active.filter((r) => r.reason === 'out_of_stock').length;
+        $('kp-resolved').textContent = allReview.filter((r) => r.resolved).length;
+
+        const rows = reason === 'both' ? allReview : allReview.filter((r) => r.reason === reason);
+        $('empty').style.display = rows.length ? 'none' : 'block';
+        $('tbl').innerHTML = rows.map((r, i) => `
+            <tr class="clickable" data-i="${i}">
+                <td><b>${escapeHtml(r.label)}</b></td>
+                <td>${reasonBadge(r.reason)}</td>
+                <td>${r.prescriptions}</td>
+                <td>${r.volume}</td>
+                <td class="muted">${escapeHtml(r.departments.join(', '))}</td>
+                <td>${statusBadge(r)}</td>
+            </tr>`).join('');
+        $('tbl').querySelectorAll('tr').forEach((tr) => { tr.onclick = () => openDetail(rows[Number(tr.dataset.i)]); });
+    }
+
+    function actionButtons(reasonV, status) {
+        if (reasonV === 'not_in_formulary') {
+            if (status === 'added_to_formulary') return '';
+            let html = '';
+            if (status === 'pending') html += '<button class="ghost" data-action="under_therapeutics">Send to Therapeutics</button> ';
+            html += '<button class="green" data-action="added_to_formulary">Mark Added to Formulary</button>';
+            return html;
+        }
+        return status === 'restocked' ? '' : '<button class="green" data-action="restocked">Mark Restocked</button>';
+    }
+
+    async function openDetail(row) {
+        const res = await api(`/api/pharmacy/detail?reason=${encodeURIComponent(row.reason)}&key=${encodeURIComponent(row.key)}`);
+        if (!res.ok) return;
+        const d = res.data.detail;
+        current = { row, d };
+        $('dTitle').textContent = d.label;
+        $('dSub').innerHTML = reasonBadge(row.reason) + ' ' + statusBadge(d);
+        $('d-rx').textContent = d.prescriptions;
+        $('d-vol').textContent = d.volume;
+        $('d-dept').textContent = d.departments.length;
+        $('dRows').innerHTML = d.rows.map((r) => `<tr><td>${fmtD(r.date)}</td><td>${escapeHtml(r.department)}</td><td>${escapeHtml(drName(r.doctor) || '—')}</td><td>${r.quantity}</td></tr>`).join('');
+        $('dAuthWrap').style.display = isStaff ? 'block' : 'none';
+        $('dAuth').value = '';
+        $('dErr').classList.remove('show');
+        $('dActions').innerHTML = actionButtons(row.reason, d.status);
+        $('dActions').querySelectorAll('button').forEach((b) => { b.onclick = () => doStatus(b.dataset.action); });
+        $('detailModal').classList.add('show');
+    }
+
+    async function doStatus(action) {
+        const { row, d } = current;
+        const body = {
+            key: row.key, reason: row.reason, action,
+            drug: { label: d.label, generic: d.generic, brand: d.brand, form: d.form, strength: d.strength },
+        };
+        if (isStaff) body.authorizerPassword = $('dAuth').value;
+        const res = await api('/api/pharmacy/status', { body });
+        if (res.ok) { $('detailModal').classList.remove('show'); load(); }
+        else { $('dErr').textContent = res.data.message || 'Could not update'; $('dErr').classList.add('show'); }
+    }
+
+    $('dClose').onclick = () => $('detailModal').classList.remove('show');
     await load();
 })();

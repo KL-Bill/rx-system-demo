@@ -2,72 +2,40 @@ const db = require('../_db/db_functions');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-const shapeMed = (m) => ({
-    id: m.id,
-    name: m.name,
-    strength: m.strength,
-    form: m.form,
-    stock: m.stock,
-    inDatabase: m.inDatabase,
-    status: m.status,
-});
-
 const listStations = () => db.getStations();
+const listDoctors = () => db.getDoctors();
+const getCatalog = () => ({ generics: db.getGenerics(), combos: db.getCombos() });
 
-const searchMeds = (q) => db.searchMeds(q).map(shapeMed);
-
-// items: [{ medId?, name, strength?, form?, quantity }]
-const createRx = ({ stationId, patient, prescriber, items }) => {
+// items: [{ genericName, brandName, formName, strength, quantity, outOfStock }]
+const createRx = ({ stationId, patient, address, age, sex, doctor, items }) => {
     const station = db.getStation(stationId);
     if (!station) throw httpError(400, 'Unknown station');
     if (!Array.isArray(items) || items.length === 0) throw httpError(400, 'No medicines on the prescription');
 
     const resolved = items.map((raw) => {
-        const qty = Number(raw.quantity) || 1;
-        let med = raw.medId ? db.getMed(raw.medId) : db.findMedByName(raw.name || '');
-        let isNew = false;
+        const genericName = (raw.genericName || '').trim();
+        const brandName = (raw.brandName || '').trim();
+        const formName = (raw.formName || '').trim();
+        const strength = (raw.strength || '').trim();
+        if (!genericName) throw httpError(400, 'A medicine is missing a generic name');
 
-        if (!med) {
-            if (!raw.name) throw httpError(400, 'A medicine is missing a name');
-            // nurse prescribed something not in the database -> queue it for pharmacy review
-            med = db.addPendingMed({ name: raw.name, strength: raw.strength, form: raw.form });
-            isNew = true;
-        }
+        const inFormulary = db.comboExists({ generic: genericName, brand: brandName, form: formName, strength });
+        // mutually exclusive: not-in-formulary wins; else the nurse's stock toggle; else normal
+        const reason = !inFormulary ? 'not_in_formulary' : (raw.outOfStock ? 'out_of_stock' : 'normal');
 
-        const inStock = med.inDatabase && med.stock != null && med.stock >= qty;
-        return { med, qty, inStock, isNew };
+        return { genericName, brandName, formName, strength, quantity: Number(raw.quantity) || 1, reason };
     });
 
-    const rx = db.addRxRecord({
+    const doc = doctor || {};
+    db.addPrescription({
         stationId,
         department: station.department,
-        patient: patient || '',
-        prescriber: prescriber || '',
+        doctor: { name: (doc.name || '').trim(), license: (doc.license || '').trim(), ptr: (doc.ptr || '').trim(), s2: (doc.s2 || '').trim() },
+        patient: patient || '', address: address || '', age: age || '', sex: sex || '',
+        items: resolved,
     });
 
-    const printItems = resolved.map(({ med, qty, inStock, isNew }) => {
-        db.addRxItem({
-            rxId: rx.id,
-            medId: med.id,
-            medName: med.name,
-            quantity: qty,
-            stationId,
-            department: station.department,
-            inStock,
-            inDatabase: med.inDatabase,
-        });
-        return {
-            name: med.name,
-            strength: med.strength,
-            form: med.form,
-            quantity: qty,
-            inStock,
-            inDatabase: med.inDatabase,
-            isNew,
-        };
-    });
-
-    return { rx, station, items: printItems };
+    return { station, items: resolved };
 };
 
-module.exports = { listStations, searchMeds, createRx };
+module.exports = { listStations, listDoctors, getCatalog, createRx };

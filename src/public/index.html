@@ -3,16 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rx Generator</title>
+    <title>TMC Rx Generator</title>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="/css/print.css">
 </head>
 <body>
     <div class="topbar">
-        <div class="brand">℞ Rx Generator <small>nurse station</small></div>
-        <div class="right">
-            <a href="/login">Pharmacy login →</a>
-        </div>
+        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Rx Generator <small>· nurse station</small></div>
+        <div class="right"><a href="/login">Pharmacy login →</a></div>
     </div>
 
     <div class="container">
@@ -20,41 +18,69 @@
             <!-- builder -->
             <div class="card">
                 <h2>New Prescription</h2>
-                <p class="sub">Add medicines, set quantities, then print. Out-of-stock and new medicines are allowed.</p>
+                <p class="sub">For medicines the main system won't release — not in the Formulary, or out of stock. Add them, then print.</p>
 
                 <label>Station / Department</label>
                 <select id="station"></select>
                 <div id="stationNote" class="sub" style="margin-top:6px"></div>
 
+                <label>Doctor</label>
+                <div class="search-wrap">
+                    <input id="doctor" autocomplete="off" placeholder="Search doctor name…">
+                    <div class="suggestions" id="sg-doctor" style="display:none"></div>
+                </div>
                 <div class="row">
-                    <div>
-                        <label>Patient name</label>
-                        <input id="patient" placeholder="Juan Dela Cruz">
-                    </div>
-                    <div>
-                        <label>Prescriber (Dr.)</label>
-                        <input id="prescriber" placeholder="Dr. ...">
-                    </div>
+                    <div><label>License (PRC) No.</label><input id="docLicense" placeholder="auto"></div>
+                    <div><label>PTR No.</label><input id="docPtr" placeholder="optional"></div>
+                    <div><label>S2 No.</label><input id="docS2" placeholder="optional"></div>
                 </div>
 
+                <div class="row">
+                    <div><label>Patient name</label><input id="patient" placeholder="Juan Dela Cruz"></div>
+                    <div><label>Age</label><input id="age" placeholder="optional"></div>
+                    <div style="flex:.6"><label>Sex</label><input id="sex" placeholder="M / F"></div>
+                </div>
                 <label>Address</label>
                 <input id="address" placeholder="optional">
 
-                <div class="row">
-                    <div>
-                        <label>Age</label>
-                        <input id="age" placeholder="optional">
+                <!-- medicine builder -->
+                <div class="builder">
+                    <div class="builder-head">
+                        <span>Add medicine</span>
+                        <span id="mbStatus" class="mb-status"></span>
                     </div>
-                    <div>
-                        <label>Sex</label>
-                        <input id="sex" placeholder="M / F">
+                    <p class="sub" style="margin:0 0 12px">Type a generic, brand, or form — pick from the suggestions. Type a new value to add a medicine not in the Formulary.</p>
+                    <div class="mb-row">
+                        <div class="search-wrap mb-f2">
+                            <label>Generic</label>
+                            <input id="f-generic" autocomplete="off" placeholder="Paracetamol">
+                            <div class="suggestions" id="sg-generic" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap mb-f2">
+                            <label>Brand</label>
+                            <input id="f-brand" autocomplete="off" placeholder="Biogesic">
+                            <div class="suggestions" id="sg-brand" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap">
+                            <label>Form</label>
+                            <input id="f-form" autocomplete="off" placeholder="Tablet">
+                            <div class="suggestions" id="sg-form" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap">
+                            <label>Strength</label>
+                            <input id="f-strength" autocomplete="off" placeholder="500mg">
+                            <div class="suggestions" id="sg-strength" style="display:none"></div>
+                        </div>
+                        <div class="mb-qty">
+                            <label>Qty</label>
+                            <input id="f-qty" type="number" min="1" value="1">
+                        </div>
                     </div>
-                </div>
-
-                <label>Add medicine</label>
-                <div class="search-wrap">
-                    <input id="search" autocomplete="off" placeholder="Type a medicine name...">
-                    <div id="suggestions" class="suggestions" style="display:none"></div>
+                    <div id="mbNote" class="mb-note" style="display:none"></div>
+                    <div class="mb-foot">
+                        <button id="mbClear" class="ghost" type="button">Clear</button>
+                        <button id="mbAdd" type="button">+ Add</button>
+                    </div>
                 </div>
 
                 <ul id="items" class="items"></ul>
@@ -69,30 +95,12 @@
             <!-- live preview -->
             <div class="card">
                 <h2>Preview</h2>
-                <p class="sub">This is roughly how the quarter-sheet will print.</p>
+                <p class="sub"><b>Bold</b> = not in the Formulary · <i>Italic</i> = no/not enough stock.</p>
                 <div id="preview"></div>
             </div>
         </div>
     </div>
 
-    <!-- new-med warning modal -->
-    <div class="modal-bg" id="newMedModal">
-        <div class="modal">
-            <h3>Medicine not in database</h3>
-            <div class="warnbox" id="newMedMsg"></div>
-            <p class="sub">It will still be added to this prescription and flagged for the pharmacy to review later.</p>
-            <div class="row">
-                <div><label>Strength (optional)</label><input id="nmStrength" placeholder="500mg"></div>
-                <div><label>Form (optional)</label><input id="nmForm" placeholder="Tablet"></div>
-            </div>
-            <div class="actions">
-                <button class="ghost" id="nmCancel">Cancel</button>
-                <button id="nmConfirm">Add anyway</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- print target -->
     <div id="print-area"></div>
 
     <script src="/js/api.js"></script>

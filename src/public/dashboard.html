@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pharmacy Dashboard</title>
+    <title>Pharmacy Review — TMC</title>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
     <div class="topbar">
-        <div class="brand">Pharmacy Dashboard <small id="scopeLabel">— Overall</small></div>
+        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Pharmacy Review</div>
         <div class="right">
             <a href="/reports">Reports</a>
             <span class="muted" id="whoami"></span>
@@ -17,71 +17,59 @@
     </div>
 
     <div class="container">
-        <div class="stationchips" id="chips"></div>
-
         <div class="kpis">
-            <div class="kpi"><div class="n" id="kp-rx">0</div><div class="l">Prescriptions</div></div>
-            <div class="kpi"><div class="n" id="kp-items">0</div><div class="l">Items prescribed</div></div>
-            <div class="kpi"><div class="n" id="kp-pending">0</div><div class="l">Pending review</div></div>
-            <div class="kpi"><div class="n" id="kp-low">0</div><div class="l">Low stock</div></div>
+            <div class="kpi"><div class="n" id="kp-total">0</div><div class="l">Drugs to review</div></div>
+            <div class="kpi"><div class="n" id="kp-nif">0</div><div class="l">Not in Formulary</div></div>
+            <div class="kpi"><div class="n" id="kp-oos">0</div><div class="l">Out of stock</div></div>
+            <div class="kpi"><div class="n" id="kp-resolved">0</div><div class="l">Resolved</div></div>
         </div>
 
-        <div class="section">
-            <h2>Most in-demand — not in database</h2>
-            <div class="card">
-                <table>
-                    <thead><tr><th>Medicine</th><th>Demand</th><th>Total qty</th><th>Departments</th><th>Score</th><th></th></tr></thead>
-                    <tbody id="tbl-pending"></tbody>
-                </table>
-                <div class="empty" id="empty-pending" style="display:none">Nothing waiting for review. 🎉</div>
+        <div class="row" style="max-width:340px; margin-bottom:14px">
+            <div>
+                <label>Department</label>
+                <select id="department"><option value="all">All departments (overall)</option></select>
             </div>
         </div>
 
-        <div class="section">
-            <h2>Supply vs demand priority</h2>
-            <p class="sub" style="margin:-4px 0 10px">Score = demand + unmet demand ×2. Higher means harder to keep supplied.</p>
-            <div class="card">
-                <table>
-                    <thead><tr><th>Medicine</th><th>In DB</th><th>Stock</th><th>Demand</th><th>Unmet</th><th>Fulfillment</th><th>Score</th></tr></thead>
-                    <tbody id="tbl-priority"></tbody>
-                </table>
-            </div>
-        </div>
+        <div class="chips" id="filters"></div>
 
-        <div class="section">
-            <h2>Low stock</h2>
-            <div class="card">
-                <table>
-                    <thead><tr><th>Medicine</th><th>Stock</th><th>Demand</th><th>Fulfillment</th><th></th></tr></thead>
-                    <tbody id="tbl-low"></tbody>
-                </table>
-                <div class="empty" id="empty-low" style="display:none">No medicines are low.</div>
-            </div>
+        <div class="card">
+            <table>
+                <thead><tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th></tr></thead>
+                <tbody id="tbl"></tbody>
+            </table>
+            <div class="empty" id="empty" style="display:none">Nothing to review. 🎉</div>
         </div>
     </div>
 
-    <!-- review / edit modal -->
-    <div class="modal-bg" id="reviewModal">
+    <!-- drill-down modal -->
+    <div class="modal-bg" id="detailModal">
         <div class="modal">
-            <h3 id="rmTitle">Review medicine</h3>
-            <p class="sub" id="rmSub"></p>
-            <div class="row">
-                <div><label>Name</label><input id="rmName"></div>
+            <h3 id="dTitle">Medicine review</h3>
+            <p class="sub" id="dSub"></p>
+
+            <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+                <div class="kpi"><div class="n" id="d-rx">0</div><div class="l">Prescriptions</div></div>
+                <div class="kpi"><div class="n" id="d-vol">0</div><div class="l">Total volume</div></div>
+                <div class="kpi"><div class="n" id="d-dept">0</div><div class="l">Departments</div></div>
             </div>
-            <div class="row">
-                <div><label>Strength</label><input id="rmStrength"></div>
-                <div><label>Form</label><input id="rmForm"></div>
-                <div><label>Stock</label><input id="rmStock" type="number" min="0"></div>
-            </div>
-            <div id="rmAuthWrap" style="display:none">
-                <div class="warnbox">Staff accounts need a superadmin or subadmin password to save changes.</div>
+
+            <h4 style="margin:0 0 6px;color:var(--navy)">Who prescribed it</h4>
+            <table>
+                <thead><tr><th>Date</th><th>Department</th><th>Doctor</th><th>Qty</th></tr></thead>
+                <tbody id="dRows"></tbody>
+            </table>
+
+            <div id="dAuthWrap" style="display:none;margin-top:14px">
+                <div class="warnbox">Staff accounts need a superadmin or subadmin password to update status.</div>
                 <label>Authorizing password</label>
-                <input id="rmAuth" type="password">
+                <input id="dAuth" type="password">
             </div>
-            <div class="errbox" id="rmErr"></div>
+            <div class="errbox" id="dErr"></div>
+
             <div class="actions">
-                <button class="ghost" id="rmCancel">Cancel</button>
-                <button id="rmSave">Confirm &amp; add to database</button>
+                <button class="ghost" id="dClose">Close</button>
+                <span id="dActions"></span>
             </div>
         </div>
     </div>

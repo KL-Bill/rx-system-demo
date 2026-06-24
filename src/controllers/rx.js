@@ -1,10 +1,8 @@
 const rxModel = require('../models/rx');
 
-const stations = (req, res) =>
-    res.json({ success: true, stations: rxModel.listStations() });
-
-const meds = (req, res) =>
-    res.json({ success: true, meds: rxModel.searchMeds(req.query.search) });
+const stations = (req, res) => res.json({ success: true, stations: rxModel.listStations() });
+const doctors = (req, res) => res.json({ success: true, doctors: rxModel.listDoctors() });
+const catalog = (req, res) => res.json({ success: true, ...rxModel.getCatalog() });
 
 const create = (req, res) => {
     try {
@@ -17,4 +15,4 @@ const create = (req, res) => {
     }
 };
 
-module.exports = { stations, meds, create };
+module.exports = { stations, doctors, catalog, create };
