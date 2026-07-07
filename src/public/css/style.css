@@ -123,6 +123,7 @@ tr.clickable:hover td { background: #f8fafe; }
 .suggestions .opt:last-child { border-bottom: none; }
 .suggestions .opt:hover { background: var(--navy-soft); }
 .suggestions .opt.new { color: var(--amber); font-weight: 600; }
+.suggestions .opt .badge { flex: none; align-self: center; font-size: 10.5px; padding: 2px 8px; white-space: nowrap; }
 
 /* medicine builder */
 .builder { margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: #fafcff; padding: 16px; }

@@ -4,7 +4,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 
 const listStations = () => db.getStations();
 const listDoctors = () => db.getDoctors();
-const getCatalog = () => ({ generics: db.getGenerics(), combos: db.getCombos() });
+const getCatalog = () => ({ combos: db.getCombos() });
 
 // items: [{ genericName, brandName, formName, strength, quantity, outOfStock }]
 const createRx = ({ stationId, patient, address, age, sex, doctor, items }) => {
@@ -19,11 +19,14 @@ const createRx = ({ stationId, patient, address, age, sex, doctor, items }) => {
         const strength = (raw.strength || '').trim();
         if (!genericName) throw httpError(400, 'A medicine is missing a generic name');
 
-        const inFormulary = db.comboExists({ generic: genericName, brand: brandName, form: formName, strength });
+        // visible in the PNDF master list, but "new" when the hospital formulary lacks the product
+        const inFormulary = db.inHospitalFormulary({ generic: genericName, brand: brandName, form: formName, strength });
         // mutually exclusive: not-in-formulary wins; else the nurse's stock toggle; else normal
         const reason = !inFormulary ? 'not_in_formulary' : (raw.outOfStock ? 'out_of_stock' : 'normal');
+        const registrationNumber = db.findRegistration({ generic: genericName, brand: brandName, form: formName, strength });
+        const volumeMl = Number(raw.volumeMl) > 0 ? Number(raw.volumeMl) : null;   // liquids: total mL to dispense
 
-        return { genericName, brandName, formName, strength, quantity: Number(raw.quantity) || 1, reason };
+        return { genericName, brandName, formName, strength, volumeMl, registrationNumber, quantity: Number(raw.quantity) || 1, reason };
     });
 
     const doc = doctor || {};

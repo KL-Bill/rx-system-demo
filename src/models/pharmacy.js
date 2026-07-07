@@ -4,11 +4,6 @@ const { verifyAuthorizer } = require('./auth');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-const parseStrength = (label) => {
-    const m = String(label || '').match(/^\s*([\d.]+)\s*(.*)$/);
-    return m ? { value: Number(m[1]) || null, unit: (m[2] || '').trim() } : { value: null, unit: label || '' };
-};
-
 // superadmin/subadmin act with their own session; staff must supply an admin password
 const authorizeMutation = async (actor, authorizerPassword) => {
     if (actor.role === 'superadmin' || actor.role === 'subadmin') return actor;
@@ -32,10 +27,9 @@ const setStatus = async (key, reason, action, drug, actor, authorizerPassword) =
 
     db.setStatus(reason, key, { status: action, statusDate: Date.now(), actor: actor.name, authorizedBy: authorizedBy.name });
 
-    // adding to the Formulary actually inserts the drug into the catalog
+    // adding to the Formulary flips the product's ihf flag in the merged catalog
     if (action === 'added_to_formulary' && drug) {
-        const { value, unit } = parseStrength(drug.strength);
-        db.addToCatalog({ genericName: drug.generic, brandName: drug.brand, formName: drug.form, value, unit });
+        db.addToCatalog({ genericName: drug.generic, brandName: drug.brand, formName: drug.form, strength: drug.strength });
     }
 
     db.addAudit({ action: 'review_status', drug: drug && drug.label, reason, status: action, actor: actor.name, authorizedBy: authorizedBy.name });

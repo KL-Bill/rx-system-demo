@@ -1,4 +1,15 @@
+const fs = require('fs');
+const path = require('path');
 const { db, save, newId } = require('./store');
+
+// The single merged drug catalog (built by scripts/build-medicines.js):
+// PNDF master list + TMC hospital formulary in one tree. Each strength carries
+// { label, registrationNumber, classification, ihf } — ihf = in hospital Formulary.
+// Temporary JSON store; this moves to a proper indexed database later.
+const MEDICINES_FILE = path.join(__dirname, 'medicines.json');
+let medicines = null;
+const meds = () => medicines || (medicines = JSON.parse(fs.readFileSync(MEDICINES_FILE, 'utf8')));
+const saveMedicines = () => fs.writeFileSync(MEDICINES_FILE, JSON.stringify(medicines, null, 1));
 
 const norm = (x) => String(x || '').trim().toLowerCase();
 // stable identity for a prescribed product, used to group demand and key review status
@@ -14,49 +25,68 @@ const getStations = () => db().stations;
 const getStation = (id) => db().stations.find((s) => s.id === id) || null;
 const getDoctors = () => db().doctors;
 
-// ---------- catalog (generic -> brands -> forms -> strengths) ----------
+// ---------- catalog (merged medicines.json: PNDF + hospital formulary) ----------
 const strengthLabel = (s) => s.label || (s.value != null ? `${s.value}${s.unit}` : (s.unit || ''));
-const getGenerics = () => db().generics;
+const getGenerics = () => meds();
+
+let combosCache = null;
+const invalidateCombos = () => { combosCache = null; };
 
 const getCombos = () => {
+    if (combosCache) return combosCache;
     const out = [];
-    for (const g of db().generics) {
+    for (const g of meds()) {
         for (const b of g.brands || []) {
             for (const f of b.forms || []) {
                 for (const s of f.strengths || []) {
                     out.push({
                         generic: g.genericName, brand: b.brandName, form: f.formName,
-                        strength: strengthLabel(s), value: s.value, unit: s.unit, nonPndf: !!s.nonPndf,
+                        strength: strengthLabel(s), registrationNumber: s.registrationNumber || null,
+                        volumeMl: s.volumeMl != null ? s.volumeMl : null,
+                        inFormulary: !!s.ihf, nonPndf: !!s.nonPndf,
                     });
                 }
             }
         }
     }
+    combosCache = out;
     return out;
 };
 
-const comboExists = ({ generic, brand, form, strength }) => {
+const findProduct = ({ generic, brand = '', form = '', strength = '' }) => {
     const eq = (a, b) => norm(a) === norm(b);
-    return getCombos().some((c) =>
-        eq(c.generic, generic) && eq(c.brand, brand) && eq(c.form, form) && eq(c.strength, strength));
+    return getCombos().find((c) =>
+        eq(c.generic, generic) && eq(c.brand, brand) && eq(c.form, form) && eq(c.strength, strength)) || null;
 };
 
-// add a medicine into the Formulary, creating generic/brand/form/strength as needed
-const addToCatalog = ({ genericName, brandName, formName, value, unit }) => {
+// STRICT product-level membership: a medicine is in the hospital Formulary only
+// when this exact generic+brand+form+strength combination is a hospital product.
+// Anything else — custom strength, different brand, unknown drug — is new.
+const inHospitalFormulary = (product) => {
+    const c = findProduct(product);
+    return !!(c && c.inFormulary);
+};
+
+const findRegistration = (product) => {
+    const c = findProduct(product);
+    return (c && c.registrationNumber) || null;
+};
+
+// mark a product as part of the hospital Formulary, creating the node when the
+// pharmacy approves something not in the merged catalog at all
+const addToCatalog = ({ genericName, brandName, formName, strength }) => {
     const eq = (a, b) => norm(a) === norm(b);
-    const generics = db().generics;
-    let g = generics.find((x) => eq(x.genericName, genericName));
-    if (!g) { g = { id: newId('g'), genericName, brands: [] }; generics.push(g); }
+    let g = meds().find((x) => eq(x.genericName, genericName));
+    if (!g) { g = { id: newId('g'), genericName, brands: [] }; meds().push(g); }
     let b = (g.brands ||= []).find((x) => eq(x.brandName, brandName));
     if (!b) { b = { id: newId('b'), brandName: brandName || '', forms: [] }; g.brands.push(b); }
     let f = (b.forms ||= []).find((x) => eq(x.formName, formName));
     if (!f) { f = { id: newId('f'), formName, strengths: [] }; b.forms.push(f); }
-    const exists = (f.strengths ||= []).some((s) => Number(s.value) === Number(value) && eq(s.unit, unit));
-    if (!exists) {
-        const v = value != null && value !== '' ? Number(value) : null;
-        f.strengths.push({ id: newId('s'), value: v, unit, label: v != null ? `${v}${unit}` : (unit || ''), nonPndf: false });
-    }
-    save();
+    let s = (f.strengths ||= []).find((x) => eq(strengthLabel(x), strength));
+    if (!s) { s = { id: newId('s'), label: strength, registrationNumber: null, classification: null }; f.strengths.push(s); }
+    s.ihf = true;
+    invalidateCombos();
+    saveMedicines();
 };
 
 // ---------- prescriptions ----------
@@ -85,7 +115,7 @@ module.exports = {
     norm, drugKey,
     getUserByUsername, getUserById, getAdmins,
     getStations, getStation, getDoctors,
-    strengthLabel, getGenerics, getCombos, comboExists, addToCatalog,
+    strengthLabel, getGenerics, getCombos, inHospitalFormulary, findRegistration, addToCatalog,
     addPrescription, getPrescriptions,
     getStatus, setStatus,
     addAudit, getAudit,

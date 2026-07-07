@@ -75,10 +75,19 @@
     const PRIORITY = ['generic', 'brand', 'form', 'strength'];
     const sel = () => ({ generic: $('f-generic').value.trim(), brand: $('f-brand').value.trim(), form: $('f-form').value.trim(), strength: $('f-strength').value.trim() });
 
+    // options carry ihf: does any product under this choice (given the fields above it)
+    // sit in the hospital Formulary? At strength level this is the exact combination.
     const optionsFor = (field, s) => {
         const higher = PRIORITY.slice(0, PRIORITY.indexOf(field));
-        const filtered = combos.filter((c) => higher.every((h) => !s[h] || eq(c[h], s[h])));
-        return [...new Set(filtered.map((c) => c[field]).filter(Boolean))].sort();
+        const map = new Map();
+        for (const c of combos) {
+            if (!higher.every((h) => !s[h] || eq(c[h], s[h]))) continue;
+            const v = c[field];
+            if (!v) continue;
+            if (!map.has(v)) map.set(v, false);
+            if (c.inFormulary) map.set(v, true);
+        }
+        return [...map.entries()].map(([value, ihf]) => ({ value, ihf })).sort((a, b) => a.value.localeCompare(b.value));
     };
     const inCatalog = (s) => combos.some((c) => FIELDS.every((f) => !s[f] || eq(c[f], s[f])));
     const comboFor = (s) => combos.find((c) => FIELDS.every((f) => eq(c[f], s[f])));
@@ -86,11 +95,20 @@
     function showSuggest(field) {
         const s = sel(); const typed = s[field].toLowerCase();
         let opts = optionsFor(field, s);
-        if (typed) opts = opts.filter((o) => o.toLowerCase().includes(typed));
+        if (typed) {
+            opts = opts.filter((o) => o.value.toLowerCase().includes(typed));
+            // closest first: exact, then starts-with, then contains — compounds (+) after plain names
+            const rank = (o) => {
+                const v = o.value.toLowerCase();
+                const pos = v === typed ? 0 : v.startsWith(typed) ? 1 : 2;
+                return pos * 2 + (o.value.includes('+') ? 1 : 0);
+            };
+            opts.sort((a, b) => rank(a) - rank(b) || a.value.localeCompare(b.value));
+        }
         opts = opts.slice(0, 50);
         const box = $(sEl[field]);
         if (!opts.length) { box.style.display = 'none'; return; }
-        box.innerHTML = opts.map((o) => `<div class="opt" data-v="${escapeHtml(o)}">${escapeHtml(o)}</div>`).join('');
+        box.innerHTML = opts.map((o) => `<div class="opt" data-v="${escapeHtml(o.value)}"><span>${escapeHtml(o.value)}</span><span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
         box.style.display = 'block';
         box.querySelectorAll('.opt').forEach((opt) => {
             opt.addEventListener('mousedown', (e) => {
@@ -112,11 +130,19 @@
         note.style.display = 'none';
         if (!s.generic) { st.textContent = ''; st.className = 'mb-status'; return; }
         if (!(s.generic && s.form && s.strength)) { st.textContent = 'fill generic, form & strength'; st.className = 'mb-status muted'; return; }
-        if (inCatalog(s)) {
-            st.textContent = '✓ In the Formulary'; st.className = 'mb-status ok';
-            const c = comboFor(s);
-            if (c && c.nonPndf) { note.textContent = 'This drug is non-pndf.'; note.style.display = 'block'; }
-        } else { st.textContent = '● Not in the Formulary — new, will be flagged for pharmacy'; st.className = 'mb-status new'; }
+        const c = comboFor(s);
+        // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
+        if (c && c.volumeMl != null && !$('f-vol').value) $('f-vol').value = c.volumeMl;
+        if (c && c.inFormulary) {
+            st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
+            const bits = [];
+            if (c.nonPndf) bits.push('This drug is non-pndf.');
+            if (c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
+            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
+        } else {
+            st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
+            if (c && c.registrationNumber) { note.textContent = `Reg. No. ${c.registrationNumber}`; note.style.display = 'block'; }
+        }
     }
     FIELDS.forEach((field) => {
         const inp = $(fEl[field]);
@@ -129,20 +155,24 @@
         inp.addEventListener('focus', () => showSuggest(field));
         inp.addEventListener('blur', () => setTimeout(() => { $(sEl[field]).style.display = 'none'; }, 150));
     });
-    function resetBuilder() { FIELDS.forEach((f) => { $(fEl[f]).value = ''; }); $('f-qty').value = '1'; updateStatus(); $('f-generic').focus(); }
+    function resetBuilder() { FIELDS.forEach((f) => { $(fEl[f]).value = ''; }); $('f-qty').value = '1'; $('f-vol').value = ''; updateStatus(); $('f-generic').focus(); }
     $('mbClear').onclick = resetBuilder;
     $('mbAdd').onclick = () => {
         const s = sel(); const qty = Number($('f-qty').value) || 1;
+        const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
         if (!s.generic || !s.form || !s.strength) { alert('Enter at least generic, form, and strength.'); return; }
         const c = comboFor(s);
-        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, quantity: qty, isNew: !inCatalog(s), nonPndf: c ? !!c.nonPndf : false, outOfStock: false });
+        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, isNew: !(c && c.inFormulary), nonPndf: c ? !!c.nonPndf : false, outOfStock: false });
         resetBuilder();
     };
 
     // ----- items -----
     function medLabel(it) {
         const brand = it.brandName ? ` (${it.brandName})` : '';
-        return `${it.genericName}${brand} ${it.formName} ${it.strength}`.replace(/\s+/g, ' ').trim();
+        // show the dispense volume unless the strength already says it (e.g. "500ML")
+        const strengthIsVol = String(it.strength || '').toLowerCase().replace(/[\s,]/g, '') === `${it.volumeMl}ml`;
+        const vol = it.volumeMl && !strengthIsVol ? `, ${it.volumeMl} mL` : '';
+        return `${it.genericName}${brand} ${it.formName} ${it.strength}${vol}`.replace(/\s+/g, ' ').trim();
     }
     function addItem(item) { items.push(item); savedRxId = null; render(); }
     function removeItem(i) { items.splice(i, 1); savedRxId = null; render(); }
@@ -234,7 +264,7 @@
                 stationId: stationSel.value,
                 patient: $('patient').value.trim(), address: $('address').value.trim(), age: $('age').value.trim(), sex: $('sex').value.trim(),
                 doctor: { name: $('doctor').value.trim(), license: $('docLicense').value.trim(), ptr: $('docPtr').value.trim(), s2: $('docS2').value.trim() },
-                items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, quantity: it.quantity, outOfStock: !!it.outOfStock })),
+                items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, outOfStock: !!it.outOfStock })),
             };
             const res = await api('/api/rx', { body: payload });
             if (!res.ok) { alert(res.data.message || 'Could not save prescription'); return; }

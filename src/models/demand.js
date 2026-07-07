@@ -45,6 +45,7 @@ function aggregate({ reason, from, to, department } = {}) {
             g = {
                 key, reason: it.reason, label: labelOf(it),
                 generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength,
+                registrationNumber: it.registrationNumber || null,
                 prescriptions: 0, volume: 0, departments: new Set(), doctors: new Set(),
                 byDept: new Map(), byDoctor: new Map(), lastDate: 0,
             };
@@ -61,6 +62,7 @@ function aggregate({ reason, from, to, department } = {}) {
     return [...groups.values()].map((g) => ({
         key: g.key, reason: g.reason, label: g.label,
         generic: g.generic, brand: g.brand, form: g.form, strength: g.strength,
+        registrationNumber: g.registrationNumber,
         prescriptions: g.prescriptions, volume: g.volume,
         departments: [...g.departments], doctors: [...g.doctors],
         byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor),
@@ -71,16 +73,16 @@ function aggregate({ reason, from, to, department } = {}) {
 
 // per-prescription detail for one drug + reason (who, which dept, how much)
 function detail(key, reason, { from, to } = {}) {
-    let label = '', generic = '', brand = '', form = '', strength = '';
+    let label = '', generic = '', brand = '', form = '', strength = '', registrationNumber = null;
     const rows = [];
     for (const { rx, it } of problemItems({ from, to })) {
         if (it.reason !== reason || db.drugKey(it) !== key) continue;
-        if (!label) { label = labelOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; }
-        rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity });
+        if (!label) { label = labelOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; }
+        rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity, volumeMl: it.volumeMl || null });
     }
     rows.sort((a, b) => b.date - a.date);
     return {
-        key, reason, label, generic, brand, form, strength,
+        key, reason, label, generic, brand, form, strength, registrationNumber,
         prescriptions: rows.length,
         volume: rows.reduce((s, r) => s + r.quantity, 0),
         departments: [...new Set(rows.map((r) => r.department))],

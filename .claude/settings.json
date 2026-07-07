@@ -47,7 +47,15 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(python -c \"import faster_whisper, av, ctranslate2; print\\('faster-whisper', faster_whisper.__version__, '| av ok | ctranslate2', ctranslate2.__version__\\)\")",
       "Read(//c/Users/My PC/Documents/TMC/**)",
-      "PowerShell(3180,3185 | ForEach-Object { Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }; \"cleared\")"
+      "PowerShell(3180,3185 | ForEach-Object { Get-NetTCPConnection -LocalPort $_ -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }; \"cleared\")",
+      "Read(//c/Users/My PC/.claude/projects/c--Users-My-PC-Documents-MY-CODES-rx-system/memory/**)",
+      "Bash(node \"C:\\\\Users\\\\MYPC~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-My-PC-Documents-MY-CODES-rx-system\\\\f74e5bca-7dd5-40bd-af50-07b582cbebd3\\\\scratchpad\\\\enrich.js\")",
+      "Bash(node \"C:\\\\Users\\\\MYPC~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-My-PC-Documents-MY-CODES-rx-system\\\\f74e5bca-7dd5-40bd-af50-07b582cbebd3\\\\scratchpad\\\\enrich.js\" --audit)",
+      "Bash(node \"C:\\\\Users\\\\MYPC~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-My-PC-Documents-MY-CODES-rx-system\\\\f74e5bca-7dd5-40bd-af50-07b582cbebd3\\\\scratchpad\\\\enrich.js\" --apply)",
+      "Bash(node scripts/build-medicines.js)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\My PC\\.claude\\projects\\c--Users-My-PC-Documents-MY-CODES-rx-system\\memory"
     ]
   }
 }
