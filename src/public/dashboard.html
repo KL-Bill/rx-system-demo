@@ -5,82 +5,142 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pharmacy Review — TMC</title>
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
 </head>
 <body>
-    <div class="topbar">
-        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Pharmacy Review</div>
-        <div class="right">
-            <a href="/reports">Reports</a>
-            <span class="muted" id="whoami"></span>
-            <button class="ghost sm" id="logout">Logout</button>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>Pharmacy Review</h1>
+                <p class="sub" style="margin:0">Drugs the main system wouldn't release — plus anyone bypassing it.</p>
+            </div>
+            <div class="kpis-inline">
+                <div class="kpi-i"><div class="n" id="kp-total">0</div><div class="l">To review</div></div>
+                <div class="kpi-i"><div class="n" id="kp-nif">0</div><div class="l">Not in Formulary</div></div>
+                <div class="kpi-i"><div class="n" id="kp-oos">0</div><div class="l">Out of stock</div></div>
+                <div class="kpi-i"><div class="n warn" id="kp-anom">0</div><div class="l">Anomalies</div></div>
+                <div class="kpi-i"><div class="n" id="kp-resolved">0</div><div class="l">Resolved</div></div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <div class="tabs" id="tabs"></div>
+            <div class="tb-search"><input id="search" placeholder="Search medicine…"></div>
+            <div class="chips" id="filters"></div>
+            <div class="tb-right">
+                <button class="ghost sm" id="filtersBtn">Filters</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="result-count" id="count"></div>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr id="thead"></tr></thead>
+                    <tbody id="tbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="empty" style="display:none">Nothing here. 🎉</div>
+
+            <div class="bulkbar" id="bulkbar">
+                <span class="n"><span id="selCount">0</span> selected</span>
+                <div class="acts" id="bulkActions"></div>
+                <button class="clear sm" id="bulkClear">Clear</button>
+            </div>
         </div>
     </div>
 
-    <div class="container">
-        <div class="kpis">
-            <div class="kpi"><div class="n" id="kp-total">0</div><div class="l">Drugs to review</div></div>
-            <div class="kpi"><div class="n" id="kp-nif">0</div><div class="l">Not in Formulary</div></div>
-            <div class="kpi"><div class="n" id="kp-oos">0</div><div class="l">Out of stock</div></div>
-            <div class="kpi"><div class="n" id="kp-resolved">0</div><div class="l">Resolved</div></div>
+    <!-- right filter drawer -->
+    <aside class="drawer" id="drawer">
+        <div class="drawer-head">
+            <h3>Filters</h3>
+            <button class="ghost sm" data-close>✕</button>
         </div>
-
-        <div class="row" style="max-width:340px; margin-bottom:14px">
-            <div>
-                <label>Department</label>
+        <div class="drawer-body">
+            <div class="drawer-sec">
+                <h4><span class="n">1</span> Department</h4>
                 <select id="department"><option value="all">All departments (overall)</option></select>
             </div>
+            <div class="drawer-sec">
+                <h4><span class="n">2</span> Status</h4>
+                <select id="statusFilter">
+                    <option value="all">Any status</option>
+                    <option value="pending">Pending</option>
+                    <option value="under_therapeutics">Under Therapeutics</option>
+                    <option value="added_to_formulary">Added to Formulary</option>
+                    <option value="restocked">Restocked</option>
+                </select>
+            </div>
+        </div>
+        <div class="drawer-foot">
+            <button class="ghost" id="clearFilters">Clear all</button>
+        </div>
+    </aside>
+
+    <!-- right detail drawer (replaces the old modal) -->
+    <aside class="drawer detail-drawer" id="detail">
+        <div class="dd-head">
+            <div class="dd-actions" id="dActions"></div>
+            <button class="ghost sm" id="dClose">✕</button>
         </div>
 
-        <div class="chips" id="filters"></div>
-
-        <div class="card">
-            <table>
-                <thead><tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th></tr></thead>
-                <tbody id="tbl"></tbody>
-            </table>
-            <div class="empty" id="empty" style="display:none">Nothing to review. 🎉</div>
+        <div class="dd-title">
+            <div class="bar"></div>
+            <div>
+                <div class="dd-name" id="dTitle"></div>
+                <div class="dd-sub" id="dSubtitle"></div>
+            </div>
         </div>
-    </div>
+        <div class="dd-badges" id="dBadges"></div>
 
-    <!-- drill-down modal -->
-    <div class="modal-bg" id="detailModal">
-        <div class="modal">
-            <h3 id="dTitle">Medicine review</h3>
-            <p class="sub" id="dSub"></p>
-
-            <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-                <div class="kpi"><div class="n" id="d-rx">0</div><div class="l">Prescriptions</div></div>
-                <div class="kpi"><div class="n" id="d-vol">0</div><div class="l">Total volume</div></div>
-                <div class="kpi"><div class="n" id="d-dept">0</div><div class="l">Departments</div></div>
+        <div class="dd-body">
+            <div class="dd-stats">
+                <div class="dd-stat"><div class="n" id="d-rx">0</div><div class="l">Prescriptions</div></div>
+                <div class="dd-stat"><div class="n" id="d-vol">0</div><div class="l">Volume</div></div>
+                <div class="dd-stat"><div class="n" id="d-dept">0</div><div class="l">Departments</div></div>
             </div>
 
-            <h4 style="margin:0 0 6px;color:var(--navy)">Who prescribed it</h4>
-            <table>
-                <thead><tr><th>Doctor</th><th>Prescriptions</th><th>Volume</th><th>Last prescribed</th></tr></thead>
-                <tbody id="dRows"></tbody>
-            </table>
+            <div class="dd-sec">
+                <h4>Who prescribed it</h4>
+                <table><thead><tr><th>Doctor</th><th>Rx</th><th>Vol</th><th>Last prescribed</th></tr></thead><tbody id="dRows"></tbody></table>
+            </div>
 
-            <h4 style="margin:16px 0 6px;color:var(--navy)">By department</h4>
-            <table>
-                <thead><tr><th>Department</th><th>Prescriptions</th><th>Volume</th></tr></thead>
-                <tbody id="dDept"></tbody>
-            </table>
+            <div class="dd-sec">
+                <h4>By department</h4>
+                <table><thead><tr><th>Department</th><th>Rx</th><th>Vol</th></tr></thead><tbody id="dDept"></tbody></table>
+            </div>
 
-            <div id="dAuthWrap" style="display:none;margin-top:14px">
+            <div class="dd-sec">
+                <h4>General details</h4>
+                <div class="dd-grid" id="dGrid"></div>
+            </div>
+
+            <div id="dAuthWrap" style="display:none">
                 <div class="warnbox">Staff accounts need a superadmin or subadmin password to update status.</div>
                 <label>Authorizing password</label>
                 <input id="dAuth" type="password">
             </div>
             <div class="errbox" id="dErr"></div>
+        </div>
+    </aside>
 
+    <!-- bulk authorize modal (staff) -->
+    <div class="modal-bg" id="bulkModal">
+        <div class="modal" style="max-width:420px">
+            <h3>Authorize</h3>
+            <div class="warnbox">Staff accounts need a superadmin or subadmin password.</div>
+            <label>Authorizing password</label>
+            <input id="bAuth" type="password">
+            <div class="errbox" id="bErr"></div>
             <div class="actions">
-                <button class="ghost" id="dClose">Close</button>
-                <span id="dActions"></span>
+                <button class="ghost" id="bCancel">Cancel</button>
+                <button id="bConfirm">Confirm</button>
             </div>
         </div>
     </div>
 
     <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>
 </html>

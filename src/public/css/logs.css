@@ -1,0 +1,21 @@
+/* the prescription slip lives inside the right detail drawer */
+.slip-stack {
+    position: relative; width: 4.25in; height: 5.5in; margin: 0 auto;
+    z-index: 0; isolation: isolate;   /* keeps page z-index inside the stack */
+}
+.slip-stack .rx-page {
+    position: absolute; left: 0; top: 0; margin: 0;
+    box-shadow: 0 6px 18px rgba(20, 48, 107, .16);
+    transition: transform .18s ease, opacity .18s ease;
+}
+/* expanded: drawer widens and pages sit side by side */
+.slip-stack.expanded {
+    position: static; width: auto; height: auto;
+    display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
+}
+.slip-stack.expanded .rx-page { position: static; transform: none !important; opacity: 1 !important; }
+
+.detail-drawer.wide { width: 960px; }
+@media (max-width: 1100px) { .detail-drawer.wide { width: 100%; } }
+
+.dd-head .pg { color: var(--muted); font-size: 12px; min-width: 58px; display: inline-block; text-align: center; }

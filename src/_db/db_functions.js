@@ -1,115 +1,222 @@
-const fs = require('fs');
-const path = require('path');
-const { db, save, newId } = require('./store');
-
-// The single merged drug catalog (built by scripts/build-medicines.js):
-// PNDF master list + TMC hospital formulary in one tree. Each strength carries
-// { label, registrationNumber, classification, ihf } — ihf = in hospital Formulary.
-// Temporary JSON store; this moves to a proper indexed database later.
-const MEDICINES_FILE = path.join(__dirname, 'medicines.json');
-let medicines = null;
-const meds = () => medicines || (medicines = JSON.parse(fs.readFileSync(MEDICINES_FILE, 'utf8')));
-const saveMedicines = () => fs.writeFileSync(MEDICINES_FILE, JSON.stringify(medicines, null, 1));
+const { pool, newId } = require('./store');
 
 const norm = (x) => String(x || '').trim().toLowerCase();
 // stable identity for a prescribed product, used to group demand and key review status
 const drugKey = (m) => [m.genericName, m.brandName, m.formName, m.strength].map(norm).join('|');
 
+const toNum = (x) => (x == null ? null : Number(x));
+
 // ---------- users ----------
-const getUserByUsername = (username) => db().users.find((u) => u.username === username) || null;
-const getUserById = (id) => db().users.find((u) => u.id === id) || null;
-const getAdmins = () => db().users.filter((u) => u.role === 'superadmin' || u.role === 'subadmin');
-
-// ---------- stations / doctors ----------
-const getStations = () => db().stations;
-const getStation = (id) => db().stations.find((s) => s.id === id) || null;
-const getDoctors = () => db().doctors;
-
-// ---------- catalog (merged medicines.json: PNDF + hospital formulary) ----------
-const strengthLabel = (s) => s.label || (s.value != null ? `${s.value}${s.unit}` : (s.unit || ''));
-const getGenerics = () => meds();
-
-let combosCache = null;
-const invalidateCombos = () => { combosCache = null; };
-
-const getCombos = () => {
-    if (combosCache) return combosCache;
-    const out = [];
-    for (const g of meds()) {
-        for (const b of g.brands || []) {
-            for (const f of b.forms || []) {
-                for (const s of f.strengths || []) {
-                    out.push({
-                        generic: g.genericName, brand: b.brandName, form: f.formName,
-                        strength: strengthLabel(s), registrationNumber: s.registrationNumber || null,
-                        volumeMl: s.volumeMl != null ? s.volumeMl : null,
-                        inFormulary: !!s.ihf, nonPndf: !!s.nonPndf,
-                    });
-                }
-            }
-        }
-    }
-    combosCache = out;
-    return out;
+const getUserByUsername = async (username) => {
+    const { rows } = await pool.query(
+        'SELECT id, name, username, password_hash AS password, role FROM users WHERE username = $1',
+        [username]);
+    return rows[0] || null;
+};
+const getUserById = async (id) => {
+    const { rows } = await pool.query(
+        'SELECT id, name, username, password_hash AS password, role FROM users WHERE id = $1', [id]);
+    return rows[0] || null;
+};
+const getAdmins = async () => {
+    const { rows } = await pool.query(
+        `SELECT id, name, username, password_hash AS password, role FROM users
+         WHERE role = 'superadmin' OR role = 'subadmin'`);
+    return rows;
 };
 
-const findProduct = ({ generic, brand = '', form = '', strength = '' }) => {
-    const eq = (a, b) => norm(a) === norm(b);
-    return getCombos().find((c) =>
-        eq(c.generic, generic) && eq(c.brand, brand) && eq(c.form, form) && eq(c.strength, strength)) || null;
+// ---------- stations / doctors ----------
+const getStations = async () => {
+    const { rows } = await pool.query('SELECT id, name, department FROM stations');
+    return rows;
+};
+const getStation = async (id) => {
+    const { rows } = await pool.query('SELECT id, name, department FROM stations WHERE id = $1', [id]);
+    return rows[0] || null;
+};
+const getDoctors = async () => {
+    const { rows } = await pool.query('SELECT id, name, license FROM doctors');
+    return rows;
+};
+
+// ---------- catalog (generics -> brands -> forms -> strengths) ----------
+const strengthLabel = (s) => s.label || '';
+
+// list of generics (id, genericName, inPnf) — kept for API parity, no caller
+// currently needs the full nested brand/form/strength tree that meds.json
+// used to return.
+const getGenerics = async () => {
+    const { rows } = await pool.query(
+        'SELECT id, generic_name AS "genericName", in_pnf AS "inPnf" FROM generics');
+    return rows;
+};
+
+const COMBO_COLUMNS = `
+    g.generic_name AS generic, b.brand_name AS brand, f.form_name AS form, s.label AS strength,
+    s.registration_number AS "registrationNumber", s.volume_ml AS "volumeMl",
+    s.ihf AS "inFormulary", g.in_pnf AS "inPnf"`;
+
+const mapCombo = (r) => ({ ...r, volumeMl: toNum(r.volumeMl) });
+
+const getCombos = async () => {
+    const { rows } = await pool.query(`
+        SELECT ${COMBO_COLUMNS}
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+
+        UNION ALL
+
+        SELECT g.generic_name, '', '', '', NULL, NULL, false, g.in_pnf
+        FROM generics g
+        WHERE NOT EXISTS (
+            SELECT 1 FROM brands b JOIN forms f ON f.brand_id = b.id JOIN strengths s ON s.form_id = f.id
+            WHERE b.generic_id = g.id
+        )
+    `);
+    return rows.map(mapCombo);
+};
+
+const findProduct = async ({ generic, brand = '', form = '', strength = '' }) => {
+    const { rows } = await pool.query(`
+        SELECT ${COMBO_COLUMNS}
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+        WHERE lower(trim(g.generic_name)) = lower(trim($1))
+          AND lower(trim(b.brand_name)) = lower(trim($2))
+          AND lower(trim(f.form_name)) = lower(trim($3))
+          AND lower(trim(s.label)) = lower(trim($4))
+        LIMIT 1
+    `, [generic, brand, form, strength]);
+    return rows[0] ? mapCombo(rows[0]) : null;
 };
 
 // STRICT product-level membership: a medicine is in the hospital Formulary only
 // when this exact generic+brand+form+strength combination is a hospital product.
 // Anything else — custom strength, different brand, unknown drug — is new.
-const inHospitalFormulary = (product) => {
-    const c = findProduct(product);
+const inHospitalFormulary = async (product) => {
+    const c = await findProduct(product);
     return !!(c && c.inFormulary);
 };
 
-const findRegistration = (product) => {
-    const c = findProduct(product);
+const findRegistration = async (product) => {
+    const c = await findProduct(product);
     return (c && c.registrationNumber) || null;
 };
 
 // mark a product as part of the hospital Formulary, creating the node when the
 // pharmacy approves something not in the merged catalog at all
-const addToCatalog = ({ genericName, brandName, formName, strength }) => {
-    const eq = (a, b) => norm(a) === norm(b);
-    let g = meds().find((x) => eq(x.genericName, genericName));
-    if (!g) { g = { id: newId('g'), genericName, brands: [] }; meds().push(g); }
-    let b = (g.brands ||= []).find((x) => eq(x.brandName, brandName));
-    if (!b) { b = { id: newId('b'), brandName: brandName || '', forms: [] }; g.brands.push(b); }
-    let f = (b.forms ||= []).find((x) => eq(x.formName, formName));
-    if (!f) { f = { id: newId('f'), formName, strengths: [] }; b.forms.push(f); }
-    let s = (f.strengths ||= []).find((x) => eq(strengthLabel(x), strength));
-    if (!s) { s = { id: newId('s'), label: strength, registrationNumber: null, classification: null }; f.strengths.push(s); }
-    s.ihf = true;
-    invalidateCombos();
-    saveMedicines();
+const addToCatalog = async ({ genericName, brandName, formName, strength }) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        let r = await client.query(
+            'SELECT id FROM generics WHERE lower(trim(generic_name)) = lower(trim($1))', [genericName]);
+        let genericId = r.rows[0] && r.rows[0].id;
+        if (!genericId) {
+            r = await client.query('INSERT INTO generics (generic_name) VALUES ($1) RETURNING id', [genericName]);
+            genericId = r.rows[0].id;
+        }
+
+        r = await client.query(
+            'SELECT id FROM brands WHERE generic_id = $1 AND lower(trim(brand_name)) = lower(trim($2))',
+            [genericId, brandName || '']);
+        let brandId = r.rows[0] && r.rows[0].id;
+        if (!brandId) {
+            r = await client.query(
+                'INSERT INTO brands (generic_id, brand_name) VALUES ($1, $2) RETURNING id',
+                [genericId, brandName || '']);
+            brandId = r.rows[0].id;
+        }
+
+        r = await client.query(
+            'SELECT id FROM forms WHERE brand_id = $1 AND lower(trim(form_name)) = lower(trim($2))',
+            [brandId, formName || '']);
+        let formId = r.rows[0] && r.rows[0].id;
+        if (!formId) {
+            r = await client.query(
+                'INSERT INTO forms (brand_id, form_name) VALUES ($1, $2) RETURNING id',
+                [brandId, formName || '']);
+            formId = r.rows[0].id;
+        }
+
+        r = await client.query(
+            'SELECT id FROM strengths WHERE form_id = $1 AND lower(trim(label)) = lower(trim($2))',
+            [formId, strength || '']);
+        const strengthId = r.rows[0] && r.rows[0].id;
+        if (!strengthId) {
+            await client.query('INSERT INTO strengths (form_id, label, ihf) VALUES ($1, $2, true)', [formId, strength || '']);
+        } else {
+            await client.query('UPDATE strengths SET ihf = true WHERE id = $1', [strengthId]);
+        }
+
+        await client.query('COMMIT');
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
 };
 
 // ---------- prescriptions ----------
-const addPrescription = (record) => {
-    const rx = { id: newId('rx'), createdAt: Date.now(), ...record };
-    db().prescriptions.push(rx);
-    save();
-    return rx;
+const addPrescription = async (record) => {
+    const id = newId('rx');
+    const createdAt = Date.now();
+    const { stationId, department, ...payload } = record;
+    await pool.query(
+        'INSERT INTO prescriptions (id, station_id, department, created_at, payload) VALUES ($1, $2, $3, $4, $5)',
+        [id, stationId || null, department || null, createdAt, JSON.stringify(payload)]);
+    return { id, stationId, department, createdAt, ...payload };
 };
-const getPrescriptions = () => db().prescriptions;
+
+const getPrescriptions = async () => {
+    const { rows } = await pool.query('SELECT id, station_id, department, created_at, payload FROM prescriptions');
+    return rows.map((r) => ({
+        id: r.id, stationId: r.station_id, department: r.department,
+        createdAt: toNum(r.created_at), ...r.payload,
+    }));
+};
 
 // ---------- review status ----------
-const statusKey = (reason, key) => `${reason}::${key}`;
-const getStatus = (reason, key) => db().reviewStatus[statusKey(reason, key)] || null;
-const setStatus = (reason, key, rec) => {
-    db().reviewStatus[statusKey(reason, key)] = { ...rec, at: Date.now() };
-    save();
-    return db().reviewStatus[statusKey(reason, key)];
+const getStatus = async (reason, key) => {
+    const { rows } = await pool.query(
+        `SELECT status, status_date AS "statusDate", actor, authorized_by AS "authorizedBy"
+         FROM review_status WHERE reason = $1 AND drug_key = $2`, [reason, key]);
+    return rows[0] ? { ...rows[0], statusDate: toNum(rows[0].statusDate) } : null;
+};
+const setStatus = async (reason, key, rec) => {
+    await pool.query(`
+        INSERT INTO review_status (reason, drug_key, status, status_date, actor, authorized_by)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (reason, drug_key) DO UPDATE SET
+            status = EXCLUDED.status, status_date = EXCLUDED.status_date,
+            actor = EXCLUDED.actor, authorized_by = EXCLUDED.authorized_by
+    `, [reason, key, rec.status, rec.statusDate || Date.now(), rec.actor || null, rec.authorizedBy || null]);
+    return getStatus(reason, key);
 };
 
 // ---------- audit ----------
-const addAudit = (entry) => { db().audit.unshift({ id: newId('aud'), at: Date.now(), ...entry }); save(); };
-const getAudit = () => db().audit;
+const addAudit = async (entry) => {
+    const id = newId('aud');
+    const at = Date.now();
+    await pool.query(`
+        INSERT INTO audit_log (id, at, action, drug, reason, status, actor, authorized_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [id, at, entry.action || null, entry.drug || null, entry.reason || null,
+        entry.status || null, entry.actor || null, entry.authorizedBy || null]);
+};
+const getAudit = async () => {
+    const { rows } = await pool.query(`
+        SELECT id, at, action, drug, reason, status, actor, authorized_by AS "authorizedBy"
+        FROM audit_log ORDER BY at DESC
+    `);
+    return rows.map((r) => ({ ...r, at: toNum(r.at) }));
+};
 
 module.exports = {
     norm, drugKey,

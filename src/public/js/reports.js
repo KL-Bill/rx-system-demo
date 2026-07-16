@@ -2,12 +2,17 @@
     const $ = (id) => document.getElementById(id);
     const me = await api('/api/auth/me');
     if (!me.ok) { window.location.href = '/login'; return; }
-    $('whoami').textContent = `${me.data.user.name} · ${me.data.user.role}`;
-    $('logout').onclick = async () => { await api('/api/auth/logout', { body: {} }); window.location.href = '/'; };
+
+    mountRail({ mode: 'pharmacy', active: 'reports' });
+    $('railUser').textContent = `${me.data.user.name} · ${me.data.user.role}`;
+    initDrawer('filtersBtn');
 
     let rows = [];
     const fmtD = (t) => (t ? new Date(t).toLocaleDateString() : '');
-    const reasonText = (r) => (r === 'not_in_formulary' ? 'Not in Formulary' : 'Out of stock');
+    const reasonText = (r) => (r === 'not_in_formulary' ? 'Not in Formulary'
+        : r === 'out_of_stock' ? 'Out of stock'
+        : r === 'normal' ? 'In stock (anomaly)'
+        : r === 'all' ? 'Everything' : r);
     const statusText = (r) => {
         if (r.status === 'added_to_formulary') return `Added to Formulary (${fmtD(r.statusDate)})`;
         if (r.status === 'restocked') return `Restocked (${fmtD(r.statusDate)})`;
@@ -45,12 +50,13 @@
         $('reportMeta').innerHTML = `Showing: <b>${escapeHtml(reasonLabel)}</b> &nbsp;|&nbsp; Dept: <b>${escapeHtml(deptLabel)}</b> &nbsp;|&nbsp; Period: <b>${escapeHtml(period)}</b> &nbsp;|&nbsp; ${new Date(d.generatedAt).toLocaleString()}`;
 
         $('reportKpis').innerHTML = [
-            ['Distinct drugs', rows.length],
+            ['Drugs', rows.length],
             ['Not in Formulary', rows.filter((r) => r.reason === 'not_in_formulary').length],
             ['Out of stock', rows.filter((r) => r.reason === 'out_of_stock').length],
-            ['Total prescriptions', rows.reduce((s, r) => s + r.prescriptions, 0)],
-            ['Total volume', rows.reduce((s, r) => s + r.volume, 0)],
-        ].map(([l, n]) => `<div class="kpi"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+            ['Anomalies', rows.filter((r) => r.reason === 'normal').length],
+            ['Prescriptions', rows.reduce((s, r) => s + r.prescriptions, 0)],
+            ['Volume', rows.reduce((s, r) => s + r.volume, 0)],
+        ].map(([l, n]) => `<div class="kpi-i"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
         const table = $('reportTable');
         table.querySelectorAll('tbody.drug-group').forEach((t) => t.remove());
@@ -102,6 +108,11 @@
     }
 
     $('genBtn').onclick = generate;
+    $('applyBtn').onclick = generate;
+    $('clearFilters').onclick = () => {
+        $('reason').value = 'both'; $('department').value = 'all'; $('from').value = ''; $('to').value = '';
+        generate();
+    };
     $('csvBtn').onclick = exportCsv;
     $('printBtn').onclick = () => {
         document.querySelectorAll('#reportTable .detail-row').forEach((d) => (d.style.display = 'table-row'));

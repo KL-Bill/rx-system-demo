@@ -5,15 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TMC Rx Generator</title>
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
     <link rel="stylesheet" href="/css/print.css">
+    <link rel="stylesheet" href="/css/print-nurse.css">
 </head>
 <body>
-    <div class="topbar">
-        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Rx Generator <small>· nurse station</small></div>
-        <div class="right"><a href="/login">Pharmacy login →</a></div>
-    </div>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>New Prescription</h1>
+                <p class="sub" style="margin:0">For medicines the main system won't release — not in the Formulary, or out of stock.</p>
+            </div>
+        </div>
 
-    <div class="container">
+        <div class="content">
         <div class="layout">
             <!-- builder -->
             <div class="card">
@@ -103,11 +108,14 @@
                 <div id="preview"></div>
             </div>
         </div>
+        </div>
     </div>
 
     <div id="print-area"></div>
 
     <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
+    <script src="/js/slip.js"></script>
     <script src="/js/rx.js"></script>
 </body>
 </html>

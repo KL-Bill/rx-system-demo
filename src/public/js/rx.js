@@ -2,9 +2,11 @@
     const meRes = await api('/api/auth/me');
     if (meRes.ok) { window.location.href = '/dashboard'; return; }
 
+    mountRail({ mode: 'nurse', active: 'rx' });
+
     const $ = (id) => document.getElementById(id);
     const eq = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
-    const items = [];   // { genericName, brandName, formName, strength, quantity, isNew, nonPndf, outOfStock }
+    const items = [];   // { genericName, brandName, formName, strength, quantity, isNew, inPnf, outOfStock }
     let savedRxId = null, dragFrom = null, combos = [], masterDoctors = [];
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
 
@@ -84,10 +86,12 @@
             if (!higher.every((h) => !s[h] || eq(c[h], s[h]))) continue;
             const v = c[field];
             if (!v) continue;
-            if (!map.has(v)) map.set(v, false);
-            if (c.inFormulary) map.set(v, true);
+            if (!map.has(v)) map.set(v, { ihf: false, pnf: false });
+            const e = map.get(v);
+            if (c.inFormulary) e.ihf = true;
+            if (c.inPnf) e.pnf = true;
         }
-        return [...map.entries()].map(([value, ihf]) => ({ value, ihf })).sort((a, b) => a.value.localeCompare(b.value));
+        return [...map.entries()].map(([value, { ihf, pnf }]) => ({ value, ihf, pnf })).sort((a, b) => a.value.localeCompare(b.value));
     };
     const inCatalog = (s) => combos.some((c) => FIELDS.every((f) => !s[f] || eq(c[f], s[f])));
     const comboFor = (s) => combos.find((c) => FIELDS.every((f) => eq(c[f], s[f])));
@@ -108,7 +112,7 @@
         opts = opts.slice(0, 50);
         const box = $(sEl[field]);
         if (!opts.length) { box.style.display = 'none'; return; }
-        box.innerHTML = opts.map((o) => `<div class="opt" data-v="${escapeHtml(o.value)}"><span>${escapeHtml(o.value)}</span><span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
+        box.innerHTML = opts.map((o) => `<div class="opt" data-v="${escapeHtml(o.value)}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
         box.style.display = 'block';
         box.querySelectorAll('.opt').forEach((opt) => {
             opt.addEventListener('mousedown', (e) => {
@@ -136,12 +140,15 @@
         if (c && c.inFormulary) {
             st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
             const bits = [];
-            if (c.nonPndf) bits.push('This drug is non-pndf.');
+            bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
             if (c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
             if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
         } else {
             st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
-            if (c && c.registrationNumber) { note.textContent = `Reg. No. ${c.registrationNumber}`; note.style.display = 'block'; }
+            const bits = [];
+            if (c) bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
+            if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
+            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
         }
     }
     FIELDS.forEach((field) => {
@@ -162,7 +169,7 @@
         const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
         if (!s.generic || !s.form || !s.strength) { alert('Enter at least generic, form, and strength.'); return; }
         const c = comboFor(s);
-        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, isNew: !(c && c.inFormulary), nonPndf: c ? !!c.nonPndf : false, outOfStock: false });
+        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
         resetBuilder();
     };
 
@@ -185,7 +192,7 @@
             const cls = it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : '');
             const tags = (it.isNew ? '<span class="badge amber">new</span> <span class="np-note">Not in the Formulary</span>' : '')
                 + (it.outOfStock ? '<span class="np-note">no / not enough stock</span>' : '')
-                + (it.nonPndf ? '<span class="np-note">non-pndf</span>' : '');
+                + (it.inPnf ? ' <span class="badge navy" title="In the Philippine National Formulary">PNF</span>' : '');
             const toggle = it.isNew ? '' :
                 `<label class="stock-toggle"><input type="checkbox" data-stock="${i}" ${it.outOfStock ? 'checked' : ''}> No stock</label>`;
             return `<li data-i="${i}">
@@ -215,46 +222,23 @@
         renderPreview();
     }
 
-    // ----- printable slip -----
-    function slipHtml() {
-        const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
-        const v = (id) => escapeHtml($(id) ? $(id).value.trim() : '');
-        const name = v('doctor'), lic = v('docLicense'), ptr = v('docPtr'), s2 = v('docS2');
-        const meds = items.map((it, i) => {
-            const cls = it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : '');
-            return `<div class="med"><span class="num">${i + 1}</span>
-                <div class="mtext"><span class="mname ${cls}">${escapeHtml(medLabel(it))}</span><span class="mqty">#${it.quantity}</span></div></div>`;
-        }).join('');
-        return `<div class="rx-form">
-            <div class="rx-head">
-                <img class="rx-logo-img" src="/img/logo.jpg" alt="">
-                <div class="rx-htext">
-                    <div class="rx-hosp">TAGUM MEDICAL CITY</div>
-                    <div class="rx-oper">(From the Operators of Bishop Joseph Regan Memorial Hospital)</div>
-                    <div class="rx-addr">Purok 3-Rattan, Apokon, Tagum City, Davao del Norte</div>
-                </div>
-            </div>
-            <div class="rx-date">Date: <u>${today}</u></div>
-            <div class="rx-fld">Patient's Name: <u>${v('patient')}</u></div>
-            <div class="rx-fld">Address: <u>${v('address')}</u></div>
-            <div class="rx-fld">Age: <u>${v('age')}</u> &nbsp; Sex: <u>${v('sex')}</u></div>
-            <div class="rx-body">
-                <div class="rx-symbol">℞</div>
-                <div class="rx-meds">${meds || '<div class="med-empty">— no medicines —</div>'}</div>
-            </div>
-            <div class="rx-foot">
-                <div class="rx-sign">
-                    <div class="sig-nm">${name ? drName(name) + ', ' : ''}M.D.</div>
-                    <div class="sig-rule"></div>
-                    <div class="sig-cap">Signature</div>
-                </div>
-                <div class="docfld">LIC. NO. <u>${lic || '&nbsp;&nbsp;&nbsp;'}</u></div>
-                <div class="docfld">S2 <u>${s2 || '&nbsp;&nbsp;&nbsp;'}</u></div>
-                <div class="docfld">PTR. NO. <u>${ptr || '&nbsp;&nbsp;&nbsp;'}</u></div>
-            </div>
-        </div>`;
+    // ----- printable slip (shared renderer: fixed 4.25in x 5.5in, auto-paginated) -----
+    function rxData() {
+        const now = new Date();
+        const v = (id) => ($(id) ? $(id).value.trim() : '');
+        return {
+            date: now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
+            time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            patient: v('patient'), address: v('address'), age: v('age'), sex: v('sex'),
+            doctor: { name: v('doctor'), license: v('docLicense'), ptr: v('docPtr'), s2: v('docS2') },
+            meds: items.map((it) => ({
+                label: medLabel(it),
+                quantity: it.quantity,
+                cls: it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : ''),
+            })),
+        };
     }
-    function renderPreview() { $('preview').innerHTML = slipHtml(); }
+    function renderPreview() { $('preview').innerHTML = slipPagesHtml(rxData()); }
 
     // ----- print -----
     $('printBtn').onclick = async () => {
@@ -271,7 +255,7 @@
             savedRxId = true;
             saveDoctor();
         }
-        $('print-area').innerHTML = slipHtml();
+        $('print-area').innerHTML = slipPagesHtml(rxData());
         window.print();
     };
     $('clearBtn').onclick = () => {

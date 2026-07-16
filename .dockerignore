@@ -1,0 +1,15 @@
+node_modules
+.git
+.env
+data.json
+
+# Build-time-only inputs — not read by the running app, only by
+# scripts/build-medicines.js and scripts/tag-pnf.js. Regenerate
+# src/_db/medicines.json locally and redeploy instead of shipping these.
+src/_db/catalog.json
+src/_db/philippine_drug_formulary.json
+src/_db/pnf.json
+src/_db/medicines.backup-*.json
+
+# per-server deploy files, not part of the image
+pod.yaml

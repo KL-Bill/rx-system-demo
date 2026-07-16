@@ -107,7 +107,6 @@ for (const { g, b, f, s } of leftovers) {
     n.registrationNumber = s.registrationNumber || null;
     if (s.regApprox) n.regApprox = true;
     n.classification = null;
-    n.nonPndf = !!s.nonPndf;
     n.ihf = true;
     const vol = volumeMl(strengthLabel(s));
     if (vol != null) n.volumeMl = vol;

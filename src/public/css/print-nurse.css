@@ -1,0 +1,7 @@
+/* Nurse station only: when printing, show ONLY the generated slip pages.
+ * Uses display:none (not visibility:hidden) so the rest of the page contributes
+ * no layout — otherwise the browser keeps a full-size sheet and ignores @page. */
+@media print {
+    body > *:not(#print-area) { display: none !important; }
+    #print-area { display: block !important; position: static; }
+}

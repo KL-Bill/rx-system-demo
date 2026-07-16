@@ -1,9 +1,9 @@
 const report = require('../models/report');
 
-const get = (req, res) => {
+const get = async (req, res) => {
     try {
         const { reason, from, to, department } = req.query;
-        const data = report.build({
+        const data = await report.build({
             reason: reason || 'both',
             department: department || 'all',
             from: from ? new Date(from + 'T00:00:00').getTime() : undefined,

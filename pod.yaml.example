@@ -1,0 +1,65 @@
+# Per-server deploy config for `podman kube play`.
+#
+# Copy this to pod.yaml (gitignored, like .env) and edit the two things
+# marked CHANGE_ME below before first run on a given machine:
+#   1. The hostPath directory — pick a real path on this server's disk.
+#   2. The passwords/secret key — generate real values, don't reuse the example.
+#
+# Bring it up:   podman kube play pod.yaml
+# Tear down:     podman kube down pod.yaml   (add --volumes to also delete pgdata)
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rx-system
+spec:
+  # Podman itself restarts a crashed container without needing systemd/any
+  # OS-level service manager — this is what makes "restart on crash" work
+  # the same on Windows as on Linux.
+  restartPolicy: Always
+  volumes:
+    - name: pgdata
+      hostPath:
+        # CHANGE_ME — a plain Linux-style path, e.g. /home/user/rx-system/pgdata.
+        # On Windows/Mac, podman commands run against a Linux VM under the
+        # hood (`podman machine`), so this path lives INSIDE that VM, not on
+        # a Windows drive letter — don't use a C:\... path here. This
+        # directory persists independently of the containers: killing/
+        # recreating either container never touches it, only deleting the
+        # directory itself does.
+        path: /home/user/rx-system/pgdata
+        type: DirectoryOrCreate
+
+  containers:
+    - name: app
+      image: localhost/rx-system:latest
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+      env:
+        - { name: PORT, value: "3000" }
+        - { name: SECRET_KEY, value: "CHANGE_ME_SECRET_KEY" }
+        - { name: PGHOST, value: "localhost" }   # containers in a Pod share one network namespace
+        - { name: PGPORT, value: "5432" }
+        - { name: PGUSER, value: "rxsystem" }
+        - { name: PGPASSWORD, value: "CHANGE_ME_DB_PASSWORD" }
+        - { name: PGDATABASE, value: "rxsystem" }
+        - { name: WEB_CONCURRENCY, value: "2" }   # fixed worker count — see .env.example
+      resources:
+        limits:
+          cpu: "1"
+          memory: "512Mi"
+
+    - name: postgres
+      image: docker.io/library/postgres:16-alpine
+      env:
+        - { name: POSTGRES_USER, value: "rxsystem" }
+        - { name: POSTGRES_PASSWORD, value: "CHANGE_ME_DB_PASSWORD" }   # must match PGPASSWORD above
+        - { name: POSTGRES_DB, value: "rxsystem" }
+      volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      resources:
+        limits:
+          cpu: "1"
+          memory: "512Mi"

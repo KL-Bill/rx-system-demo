@@ -5,62 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reports — TMC Pharmacy</title>
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
     <link rel="stylesheet" href="/css/report.css">
 </head>
 <body>
-    <div class="topbar">
-        <div class="brand"><img src="/img/logo.jpg" alt="TMC"> Reports</div>
-        <div class="right">
-            <a href="/dashboard">← Review</a>
-            <span class="muted" id="whoami"></span>
-            <button class="ghost sm" id="logout">Logout</button>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>Reports</h1>
+                <p class="sub" style="margin:0">High-demand drugs — not in Formulary, out of stock, and in-stock anomalies.</p>
+            </div>
+            <div class="kpis-inline" id="reportKpis"></div>
+        </div>
+
+        <div class="toolbar">
+            <div class="tb-right" style="margin-left:0">
+                <button id="genBtn">Generate</button>
+                <button id="csvBtn" class="ghost sm">Export CSV</button>
+                <button id="printBtn" class="ghost sm">Print / PDF</button>
+            </div>
+            <div class="tb-right">
+                <button class="ghost sm" id="filtersBtn">Filters</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div id="report">
+                <div class="report-header">
+                    <img src="/img/logo.jpg" alt="TMC" class="rh-logo">
+                    <div>
+                        <div class="rh-title">TAGUM MEDICAL CITY</div>
+                        <div class="rh-sub">High-Demand Drugs Report</div>
+                        <div class="rh-meta" id="reportMeta"></div>
+                    </div>
+                </div>
+
+                <div class="tbl-wrap">
+                    <table id="reportTable" class="dense">
+                        <thead>
+                            <tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th></tr>
+                        </thead>
+                    </table>
+                </div>
+                <div class="empty" id="reportEmpty" style="display:none">No prescriptions in this period.</div>
+            </div>
         </div>
     </div>
 
-    <div class="container">
-        <div class="controls card no-print">
-            <div>
-                <label>Show</label>
+    <aside class="drawer" id="drawer">
+        <div class="drawer-head">
+            <h3>Filters</h3>
+            <button class="ghost sm" data-close>✕</button>
+        </div>
+        <div class="drawer-body">
+            <div class="drawer-sec">
+                <h4><span class="n">1</span> Show</h4>
                 <select id="reason">
                     <option value="both">Both reasons</option>
                     <option value="not_in_formulary">Not in Formulary</option>
                     <option value="out_of_stock">Out of stock</option>
+                    <option value="normal">In stock (anomaly)</option>
+                    <option value="all">Everything</option>
                 </select>
             </div>
-            <div>
-                <label>Department</label>
+            <div class="drawer-sec">
+                <h4><span class="n">2</span> Department</h4>
                 <select id="department"><option value="all">All departments</option></select>
             </div>
-            <div><label>From</label><input id="from" type="date"></div>
-            <div><label>To</label><input id="to" type="date"></div>
-            <div class="spacer"></div>
-            <div><button id="genBtn">Generate</button></div>
-            <div><button id="csvBtn" class="ghost">Export CSV</button></div>
-            <div><button id="printBtn" class="ghost">Print / PDF</button></div>
-        </div>
-
-        <div id="report" class="card report-card">
-            <div class="report-header">
-                <img src="/img/logo.jpg" alt="TMC" class="rh-logo">
-                <div>
-                    <div class="rh-title">TAGUM MEDICAL CITY</div>
-                    <div class="rh-sub">High-Demand Drugs — Not in Formulary &amp; Out of Stock</div>
-                    <div class="rh-meta" id="reportMeta"></div>
-                </div>
+            <div class="drawer-sec">
+                <h4><span class="n">3</span> Period</h4>
+                <label>From</label><input id="from" type="date">
+                <label>To</label><input id="to" type="date">
             </div>
-
-            <div class="rkpis" id="reportKpis"></div>
-
-            <table id="reportTable">
-                <thead>
-                    <tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th></tr>
-                </thead>
-            </table>
-            <div class="empty" id="reportEmpty" style="display:none">No prescriptions in this period.</div>
         </div>
-    </div>
+        <div class="drawer-foot">
+            <button class="ghost" id="clearFilters">Clear</button>
+            <button id="applyBtn">Apply</button>
+        </div>
+    </aside>
 
     <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
     <script src="/js/reports.js"></script>
 </body>
 </html>

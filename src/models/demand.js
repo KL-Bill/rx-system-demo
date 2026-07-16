@@ -5,21 +5,32 @@ const labelOf = (it) => {
     return `${it.genericName}${brand} ${it.formName} ${it.strength}`.replace(/\s+/g, ' ').trim();
 };
 
-// every prescription item with a problem reason, within an optional date range
-function problemItems({ from, to } = {}) {
+// reasons a medicine can land on one of these prescriptions
+const PROBLEM = ['not_in_formulary', 'out_of_stock'];
+const ALL_REASONS = [...PROBLEM, 'normal'];
+
+// 'normal' = in the hospital Formulary AND in stock. It should NEVER be on one of these
+// slips (in-stock items go through the main system so PhilHealth records them), so a
+// normal item here is an anomaly worth monitoring — not a legitimate grouping.
+const reasonsWanted = (reason) => {
+    if (reason === 'all') return ALL_REASONS;
+    if (!reason || reason === 'both') return PROBLEM;
+    return [reason];
+};
+
+// every prescription item, within an optional date range
+async function allItems({ from, to } = {}) {
     const out = [];
-    for (const rx of db.getPrescriptions()) {
+    for (const rx of await db.getPrescriptions()) {
         if (from != null && rx.createdAt < from) continue;
         if (to != null && rx.createdAt > to) continue;
-        for (const it of rx.items) {
-            if (it.reason === 'not_in_formulary' || it.reason === 'out_of_stock') out.push({ rx, it });
-        }
+        for (const it of rx.items) out.push({ rx, it });
     }
     return out;
 }
 
-const statusInfo = (reason, key) => {
-    const rec = db.getStatus(reason, key);
+const statusInfo = async (reason, key) => {
+    const rec = await db.getStatus(reason, key);
     const status = rec ? rec.status : 'pending';
     return { status, statusDate: rec ? rec.statusDate : null, resolved: status === 'added_to_formulary' || status === 'restocked' };
 };
@@ -33,10 +44,11 @@ const tally = (map, name, qty, date) => {
 const listOf = (map) => [...map.values()].sort((a, b) => b.volume - a.volume || b.prescriptions - a.prescriptions);
 
 // grouped by drug + reason, ranked by demand. Optional department scope.
-function aggregate({ reason, from, to, department } = {}) {
+async function aggregate({ reason, from, to, department } = {}) {
+    const wanted = reasonsWanted(reason);
     const groups = new Map();
-    for (const { rx, it } of problemItems({ from, to })) {
-        if (reason && reason !== 'both' && it.reason !== reason) continue;
+    for (const { rx, it } of await allItems({ from, to })) {
+        if (!wanted.includes(it.reason)) continue;
         if (department && department !== 'all' && rx.department !== department) continue;
         const key = db.drugKey(it);
         const gk = it.reason + '::' + key;
@@ -59,7 +71,7 @@ function aggregate({ reason, from, to, department } = {}) {
         tally(g.byDoctor, rx.doctor && rx.doctor.name, it.quantity, rx.createdAt);
         g.lastDate = Math.max(g.lastDate, rx.createdAt);
     }
-    return [...groups.values()].map((g) => ({
+    const results = await Promise.all([...groups.values()].map(async (g) => ({
         key: g.key, reason: g.reason, label: g.label,
         generic: g.generic, brand: g.brand, form: g.form, strength: g.strength,
         registrationNumber: g.registrationNumber,
@@ -67,15 +79,16 @@ function aggregate({ reason, from, to, department } = {}) {
         departments: [...g.departments], doctors: [...g.doctors],
         byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor),
         lastDate: g.lastDate,
-        ...statusInfo(g.reason, g.key),
-    })).sort((a, b) => b.prescriptions - a.prescriptions || b.volume - a.volume);
+        ...(await statusInfo(g.reason, g.key)),
+    })));
+    return results.sort((a, b) => b.prescriptions - a.prescriptions || b.volume - a.volume);
 }
 
 // per-prescription detail for one drug + reason (who, which dept, how much)
-function detail(key, reason, { from, to } = {}) {
+async function detail(key, reason, { from, to } = {}) {
     let label = '', generic = '', brand = '', form = '', strength = '', registrationNumber = null;
     const rows = [];
-    for (const { rx, it } of problemItems({ from, to })) {
+    for (const { rx, it } of await allItems({ from, to })) {
         if (it.reason !== reason || db.drugKey(it) !== key) continue;
         if (!label) { label = labelOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; }
         rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity, volumeMl: it.volumeMl || null });
@@ -88,7 +101,7 @@ function detail(key, reason, { from, to } = {}) {
         departments: [...new Set(rows.map((r) => r.department))],
         doctors: [...new Set(rows.map((r) => r.doctor).filter(Boolean))],
         rows,
-        ...statusInfo(reason, key),
+        ...(await statusInfo(reason, key)),
     };
 }
 

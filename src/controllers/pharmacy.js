@@ -6,13 +6,13 @@ const handle = (res, err) => {
     return res.status(500).json({ success: false, message: 'Server error' });
 };
 
-const review = (req, res) => {
-    try { return res.json({ success: true, review: pharmacy.getReview({ reason: req.query.reason, department: req.query.department }) }); }
+const review = async (req, res) => {
+    try { return res.json({ success: true, review: await pharmacy.getReview({ reason: req.query.reason, department: req.query.department }) }); }
     catch (err) { return handle(res, err); }
 };
 
-const detail = (req, res) => {
-    try { return res.json({ success: true, detail: pharmacy.getDetail(req.query.key, req.query.reason) }); }
+const detail = async (req, res) => {
+    try { return res.json({ success: true, detail: await pharmacy.getDetail(req.query.key, req.query.reason) }); }
     catch (err) { return handle(res, err); }
 };
 
@@ -24,9 +24,31 @@ const status = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
-const audit = (req, res) => {
-    try { return res.json({ success: true, audit: pharmacy.getAudit() }); }
+const statusBulk = async (req, res) => {
+    try {
+        const { drugs, action, authorizerPassword } = req.body;
+        const out = await pharmacy.setStatusBulk(drugs, action, req.user, authorizerPassword);
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+
+const prescriptions = async (req, res) => {
+    try {
+        const { from, to, department, reason, q } = req.query;
+        return res.json({
+            success: true,
+            prescriptions: await pharmacy.listPrescriptions({
+                department, reason, q,
+                from: from ? new Date(from + 'T00:00:00').getTime() : undefined,
+                to: to ? new Date(to + 'T23:59:59').getTime() : undefined,
+            }),
+        });
+    } catch (err) { return handle(res, err); }
+};
+
+const audit = async (req, res) => {
+    try { return res.json({ success: true, audit: await pharmacy.getAudit() }); }
     catch (err) { return handle(res, err); }
 };
 
-module.exports = { review, detail, status, audit };
+module.exports = { review, detail, status, statusBulk, audit, prescriptions };

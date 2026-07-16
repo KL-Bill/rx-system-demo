@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prescription Logs — TMC</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
+    <link rel="stylesheet" href="/css/print.css">
+    <link rel="stylesheet" href="/css/print-nurse.css">
+    <link rel="stylesheet" href="/css/logs.css">
+</head>
+<body>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>Prescription Logs</h1>
+                <p class="sub" style="margin:0">Audit trail — click a prescription to see the actual slip.</p>
+            </div>
+            <div class="kpis-inline">
+                <div class="kpi-i"><div class="n" id="kp-rx">0</div><div class="l">Prescriptions</div></div>
+                <div class="kpi-i"><div class="n" id="kp-meds">0</div><div class="l">Medicines</div></div>
+                <div class="kpi-i"><div class="n warn" id="kp-anom">0</div><div class="l">Anomalies</div></div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <div class="tb-search"><input id="q" placeholder="Search patient, doctor, drug…"></div>
+            <div class="tb-right">
+                <button class="ghost sm" id="filtersBtn">Filters</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="result-count" id="count"></div>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr><th>When</th><th>Department</th><th>Doctor</th><th>Patient</th><th>Meds</th><th>Flags</th></tr></thead>
+                    <tbody id="tbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="empty" style="display:none">No prescriptions match these filters.</div>
+        </div>
+    </div>
+
+    <!-- filters -->
+    <aside class="drawer" id="drawer">
+        <div class="drawer-head">
+            <h3>Filters</h3>
+            <button class="ghost sm" data-close>✕</button>
+        </div>
+        <div class="drawer-body">
+            <div class="drawer-sec">
+                <h4><span class="n">1</span> Department</h4>
+                <select id="department"><option value="all">All departments</option></select>
+            </div>
+            <div class="drawer-sec">
+                <h4><span class="n">2</span> Reason</h4>
+                <select id="reason">
+                    <option value="all">All reasons</option>
+                    <option value="not_in_formulary">Not in Formulary</option>
+                    <option value="out_of_stock">Out of stock</option>
+                    <option value="normal">In stock (anomaly)</option>
+                </select>
+            </div>
+            <div class="drawer-sec">
+                <h4><span class="n">3</span> Period</h4>
+                <label>From</label><input id="from" type="date">
+                <label>To</label><input id="to" type="date">
+            </div>
+        </div>
+        <div class="drawer-foot">
+            <button class="ghost" id="clearFilters">Clear</button>
+            <button id="refreshBtn">Apply</button>
+        </div>
+    </aside>
+
+    <!-- prescription detail (the real slip) -->
+    <aside class="drawer detail-drawer" id="detail">
+        <div class="dd-head">
+            <div class="dd-actions">
+                <button class="ghost sm" id="ddPrint">Print</button>
+                <span id="ddPager" style="display:none">
+                    <button class="ghost sm" id="ddPrev">‹</button>
+                    <span class="pg" id="ddPg"></span>
+                    <button class="ghost sm" id="ddNext">›</button>
+                    <button class="ghost sm" id="ddExpand">Expand</button>
+                </span>
+            </div>
+            <button class="ghost sm" id="ddClose">✕</button>
+        </div>
+
+        <div class="dd-title">
+            <div class="bar"></div>
+            <div>
+                <div class="dd-name" id="ddPatient"></div>
+                <div class="dd-sub" id="ddWhen"></div>
+            </div>
+        </div>
+        <div class="dd-badges" id="ddBadges"></div>
+
+        <div class="dd-body">
+            <div class="slip-stack" id="ddStack" data-page="0"></div>
+            <div class="dd-sec" style="margin-top:20px">
+                <h4>Details</h4>
+                <div class="dd-grid" id="ddGrid"></div>
+            </div>
+        </div>
+    </aside>
+
+    <div id="print-area"></div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
+    <script src="/js/slip.js"></script>
+    <script src="/js/logs.js"></script>
+</body>
+</html>
