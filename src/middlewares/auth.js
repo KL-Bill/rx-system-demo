@@ -22,11 +22,20 @@ const getToken = (req) => {
     return h && h.startsWith('Bearer ') ? h.slice(7) : req.cookies?.token;
 };
 
-// require a valid pharmacy session
+// require a valid session
 const authenticateApi = (req, res, next) => {
     const user = verifyToken(getToken(req));
     if (!user) return res.status(401).json({ success: false, message: 'Unauthenticated' });
     req.user = user;
+    next();
+};
+
+// require one of the given roles (use after authenticateApi) — keeps IT out
+// of pharmacy data and pharmacy out of the IT console
+const requireRole = (...roles) => (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
     next();
 };
 
@@ -35,4 +44,5 @@ module.exports = {
     verifyToken,
     getToken,
     authenticateApi,
+    requireRole,
 };

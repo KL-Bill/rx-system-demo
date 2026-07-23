@@ -1,5 +1,5 @@
 # Dumps the running Postgres container to a timestamped file via
-# `podman exec ... pg_dump` (never a raw copy of the data directory —
+# `podman exec ... pg_dump` (never a raw copy of the data directory -
 # copying a live database's files risks an inconsistent snapshot; pg_dump
 # talks to the running server and produces one clean, consistent dump).
 # Deletes dumps older than $RetentionDays. Registered to run every 12h by
@@ -18,11 +18,31 @@ New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $outFile = Join-Path $BackupDir "rx-system-$stamp.sql"
 
-# Redirect via cmd.exe, not PowerShell's `>`/Out-File — PowerShell's own
+# Records the run in the `backups` table so the IT page can show backup
+# history - the app lives inside the pod and can't see $BackupDir, the
+# database is the only channel both sides can reach. Best-effort: a failed
+# INSERT must not fail the backup itself.
+function Record-Run($status, $sizeBytes, $durationMs) {
+    $at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $file = Split-Path -Leaf $outFile
+    $sql = "INSERT INTO backups (at, file, size_bytes, duration_ms, status) " +
+           "VALUES ($at, '$file', $sizeBytes, $durationMs, '$status')"
+    podman exec $PodContainer psql -U $PgUser -d $PgDatabase -c $sql | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "could not record backup run in backups table" }
+}
+
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+# Redirect via cmd.exe, not PowerShell's `>`/Out-File - PowerShell's own
 # redirection re-encodes text (UTF-16 with a BOM by default), which would
 # corrupt the SQL dump. cmd.exe's `>` just captures pg_dump's raw output.
 cmd /c "podman exec $PodContainer pg_dump -U $PgUser $PgDatabase > `"$outFile`""
-if ($LASTEXITCODE -ne 0) { Write-Error "pg_dump failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) {
+    Record-Run "failed" 0 $sw.ElapsedMilliseconds
+    Write-Error "pg_dump failed"
+    exit 1
+}
+Record-Run "ok" (Get-Item $outFile).Length $sw.ElapsedMilliseconds
 Write-Host "Backup written: $outFile"
 
 Get-ChildItem $BackupDir -Filter "rx-system-*.sql" |

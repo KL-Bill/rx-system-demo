@@ -45,12 +45,16 @@ CREATE INDEX idx_generics_name ON generics (lower(generic_name));
 -- ids keep the app's existing "prefix-uuid8" text-id scheme (see newId() in
 -- src/_db/store.js) for continuity with data already handed out to users.
 
+-- role: 'admin' (pharmacy head), 'staff' (pharmacy staff), 'it' (system
+-- administration). Nurses have no login. Deactivated accounts keep their row
+-- (active = false) so audit entries still point at a real user.
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL
+  role TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true
 );
 
 CREATE TABLE stations (
@@ -113,3 +117,39 @@ CREATE TABLE audit_log (
 );
 
 CREATE INDEX idx_audit_log_at ON audit_log (at DESC);
+
+-- ---------- system log (IT page) ----------
+-- app-level events: logins (success/failure), logouts, account management,
+-- prescriptions printed (station/department only — no patient data), backups.
+-- Grows unbounded; always read through getSystemLogs()'s LIMIT/OFFSET.
+
+CREATE TABLE system_logs (
+  id TEXT PRIMARY KEY,
+  at BIGINT NOT NULL,
+  type TEXT NOT NULL,
+  actor TEXT,
+  role TEXT,
+  target TEXT,
+  ip TEXT,
+  details JSONB
+);
+
+CREATE INDEX idx_system_logs_at ON system_logs (at DESC);
+CREATE INDEX idx_system_logs_type ON system_logs (type);
+
+-- ---------- backups (IT page) ----------
+-- One row per scripts/backup-db.ps1 run, inserted by the script itself via
+-- `podman exec ... psql`. The app runs inside the pod and cannot see the
+-- host's backup directory — this table is the shared channel. SERIAL id so
+-- the PowerShell-side INSERT stays trivial.
+
+CREATE TABLE backups (
+  id SERIAL PRIMARY KEY,
+  at BIGINT NOT NULL,
+  file TEXT NOT NULL,
+  size_bytes BIGINT,
+  duration_ms BIGINT,
+  status TEXT NOT NULL
+);
+
+CREATE INDEX idx_backups_at ON backups (at DESC);

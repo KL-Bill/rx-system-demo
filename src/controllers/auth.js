@@ -1,5 +1,6 @@
 const { authenticate } = require('../models/auth');
 const { signAccess, verifyToken, getToken } = require('../middlewares/auth');
+const { logEvent } = require('../models/syslog');
 
 const login = async (req, res) => {
     const { username, password } = req.body;
@@ -8,8 +9,12 @@ const login = async (req, res) => {
     }
     try {
         const user = await authenticate(username, password);
-        if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (!user) {
+            logEvent('login_failed', req, { target: username });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
 
+        logEvent('login', req, { actor: user.name, role: user.role });
         const token = signAccess(user);
         res.cookie('token', token, { httpOnly: true, maxAge: 24 * 60 * 60 * 1000 });
         return res.json({ success: true, user });
@@ -20,6 +25,8 @@ const login = async (req, res) => {
 };
 
 const logout = (req, res) => {
+    const u = verifyToken(getToken(req));
+    if (u) logEvent('logout', req, { actor: u.name, role: u.role });
     res.clearCookie('token');
     res.json({ success: true });
 };

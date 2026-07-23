@@ -2,6 +2,7 @@
     const $ = (id) => document.getElementById(id);
     const me = await api('/api/auth/me');
     if (!me.ok) { window.location.href = '/login'; return; }
+    if (me.data.user.role === 'it') { window.location.href = '/it'; return; }
 
     mountRail({ mode: 'pharmacy', active: 'logs' });
     $('railUser').textContent = `${me.data.user.name} · ${me.data.user.role}`;

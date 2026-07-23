@@ -3,13 +3,13 @@ const db = require('../_db/db_functions');
 
 const authenticate = async (username, password) => {
     const user = await db.getUserByUsername(username);
-    if (!user) return null;
+    if (!user || user.active === false) return null;
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return null;
     return { id: user.id, name: user.name, role: user.role };
 };
 
-// returns the authorizing admin if the password matches ANY superadmin/subadmin
+// returns the authorizing admin if the password matches ANY active admin
 const verifyAuthorizer = async (password) => {
     if (!password) return null;
     for (const admin of await db.getAdmins()) {

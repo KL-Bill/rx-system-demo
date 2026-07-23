@@ -1,25 +1,26 @@
-// Create a pharmacy login without touching the database directly.
+// Create a login without touching the database directly.
 //
 // Usage (the "--" is required so npm forwards the args to this script
 // instead of swallowing them):
 //   npm run create-admin -- <username> <password> [role]
 //
-// role defaults to "subadmin"; pass "superadmin" explicitly for a superadmin
-// login, or "staff" for a plain staff account. Refuses to overwrite an
-// existing username.
+// role defaults to "staff"; pass "admin" for the pharmacy head, or "it" for
+// an IT account. IT accounts can ONLY be created here — the IT page creates
+// pharmacy accounts (admin/staff) but deliberately cannot mint IT logins.
+// Refuses to overwrite an existing username.
 
 const bcrypt = require('bcryptjs');
 const { pool, newId } = require('../src/_db/store');
 
-const VALID_ROLES = ['superadmin', 'subadmin', 'staff'];
+const VALID_ROLES = ['admin', 'staff', 'it'];
 
 function usage() {
     console.log('Usage: npm run create-admin -- <username> <password> [role]');
-    console.log(`  role: one of ${VALID_ROLES.join(', ')} (default: subadmin)`);
+    console.log(`  role: one of ${VALID_ROLES.join(', ')} (default: staff)`);
 }
 
 async function main() {
-    const [username, password, role = 'subadmin'] = process.argv.slice(2);
+    const [username, password, role = 'staff'] = process.argv.slice(2);
 
     if (!username || !password || username === '--help' || username === '-h') {
         usage();

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Console — TMC</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
+    <link rel="stylesheet" href="/css/it.css">
+</head>
+<body>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>IT Console</h1>
+                <p class="sub" style="margin:0">System log · accounts · backups</p>
+            </div>
+            <div class="kpis-inline">
+                <div class="kpi-i"><div class="n" id="kp-db">—</div><div class="l">Database</div></div>
+                <div class="kpi-i"><div class="n" id="kp-fail">0</div><div class="l">Failed logins (24h)</div></div>
+                <div class="kpi-i"><div class="n" id="kp-users">0</div><div class="l">Accounts</div></div>
+                <div class="kpi-i"><div class="n" id="kp-up">—</div><div class="l">App uptime</div></div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <div class="tabs" id="tabs">
+                <button class="tab active" data-tab="syslog" type="button">System Log</button>
+                <button class="tab" data-tab="audit" type="button">Pharmacy Audit</button>
+                <button class="tab" data-tab="accounts" type="button">Accounts</button>
+                <button class="tab" data-tab="backups" type="button">Backups</button>
+            </div>
+        </div>
+
+        <!-- ===== System Log ===== -->
+        <div class="content pane" id="pane-syslog">
+            <div class="filters-row">
+                <input id="q" placeholder="Search actor, target…" style="max-width:260px">
+                <select id="type" style="max-width:190px">
+                    <option value="">All events</option>
+                    <option value="login">Login</option>
+                    <option value="login_failed">Login failed</option>
+                    <option value="logout">Logout</option>
+                    <option value="rx_created">Prescription printed</option>
+                    <option value="user_created">Account created</option>
+                    <option value="password_reset">Password reset</option>
+                    <option value="user_deactivated">Account deactivated</option>
+                    <option value="user_reactivated">Account reactivated</option>
+                </select>
+                <input type="date" id="from" style="max-width:160px">
+                <input type="date" id="to" style="max-width:160px">
+                <button class="ghost sm" id="refreshLog" type="button">Refresh</button>
+            </div>
+            <div class="result-count" id="logCount"></div>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Target</th><th>IP</th><th>Details</th></tr></thead>
+                    <tbody id="logTbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="logEmpty" style="display:none">No events match these filters.</div>
+            <div class="pager">
+                <button class="ghost sm" id="prevPg" type="button">‹ Newer</button>
+                <span id="pgInfo"></span>
+                <button class="ghost sm" id="nextPg" type="button">Older ›</button>
+            </div>
+        </div>
+
+        <!-- ===== Pharmacy Audit ===== -->
+        <div class="content pane" id="pane-audit" style="display:none">
+            <p class="sub">Pharmacy management actions (status changes on reviewed medicines). No patient data.</p>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr><th>When</th><th>Action</th><th>Drug</th><th>Reason</th><th>Status</th><th>Actor</th><th>Authorized by</th></tr></thead>
+                    <tbody id="auditTbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="auditEmpty" style="display:none">No pharmacy audit entries yet.</div>
+        </div>
+
+        <!-- ===== Accounts ===== -->
+        <div class="content pane" id="pane-accounts" style="display:none">
+            <div class="filters-row">
+                <p class="sub" style="margin:0;flex:1">Pharmacy logins. IT accounts are managed from the server console only.</p>
+                <button class="sm" id="newUserBtn" type="button">+ New account</button>
+            </div>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="userTbl"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ===== Backups ===== -->
+        <div class="content pane" id="pane-backups" style="display:none">
+            <div id="backupStatus"></div>
+            <div class="tbl-wrap">
+                <table class="dense">
+                    <thead><tr><th>When</th><th>File</th><th>Size</th><th>Duration</th><th>Status</th></tr></thead>
+                    <tbody id="backupTbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="backupEmpty" style="display:none">
+                No backups recorded yet. Runs are registered by the <b>rx-system-backup</b> scheduled task on the host
+                (every 12 h). To run one manually, on the server:
+                <code>powershell -File scripts\backup-db.ps1</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== new account modal ===== -->
+    <div class="modal-bg" id="userModalBg">
+        <div class="modal">
+            <h3>New pharmacy account</h3>
+            <p class="sub">The user should change this password after their first login.</p>
+            <label for="uName">Full name</label>
+            <input id="uName" placeholder="e.g. Maria Santos">
+            <label for="uUsername">Username</label>
+            <input id="uUsername" autocomplete="off">
+            <label for="uPassword">Temporary password (min 8 chars)</label>
+            <input id="uPassword" type="text" autocomplete="off">
+            <label for="uRole">Role</label>
+            <select id="uRole">
+                <option value="staff">Staff (pharmacy staff)</option>
+                <option value="admin">Admin (pharmacy head)</option>
+            </select>
+            <div class="err" id="userErr"></div>
+            <div class="actions">
+                <button class="ghost" data-close type="button">Cancel</button>
+                <button id="createUserBtn" type="button">Create account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== reset password modal ===== -->
+    <div class="modal-bg" id="pwModalBg">
+        <div class="modal">
+            <h3>Reset password</h3>
+            <p class="sub" id="pwWho"></p>
+            <label for="pwNew">New password (min 8 chars)</label>
+            <input id="pwNew" type="text" autocomplete="off">
+            <div class="err" id="pwErr"></div>
+            <div class="actions">
+                <button class="ghost" data-close type="button">Cancel</button>
+                <button id="resetPwBtn" type="button">Reset password</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
+    <script src="/js/it.js"></script>
+</body>
+</html>

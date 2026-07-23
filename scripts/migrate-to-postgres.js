@@ -1,5 +1,7 @@
-// One-time migration: read the old JSON stores (data.json + src/_db/medicines.json)
-// and load them into Postgres. Safe to re-run — truncates the target tables first.
+// One-time migration: load Postgres with (a) the drug catalog and hospital
+// baseline reference data (stations, doctors) that ship with this repo, and
+// (b) an optional prior deployment's data.json (users/prescriptions/review
+// history), if one is present. Safe to re-run — truncates target tables first.
 //
 // Run manually after the Postgres container is up and db/schema.sql has been
 // applied:  node scripts/migrate-to-postgres.js
@@ -11,13 +13,33 @@ const { pool } = require('../src/_db/store');
 const ROOT = path.join(__dirname, '..');
 const DATA_FILE = path.join(ROOT, 'data.json');
 const MEDICINES_FILE = path.join(ROOT, 'src', '_db', 'medicines.json');
+const DOCTORS_FILE = path.join(ROOT, 'src', '_db', 'doctors.json');
+
+// baseline hospital stations — not tied to any particular deployment's history
+const BASELINE_STATIONS = [
+    { id: 'st-er', name: 'Emergency Room', department: 'Emergency Room' },
+    { id: 'st-or', name: 'Operating Room', department: 'Operating Room' },
+    { id: 'st-dr', name: 'Delivery Room', department: 'Delivery Room' },
+    { id: 'st-asu', name: 'ASU', department: 'ASU' },
+    { id: 'st-icu', name: 'ICU', department: 'ICU' },
+    { id: 'st-lily', name: 'Lily', department: 'Lily' },
+    { id: 'st-tulip', name: 'Tulip', department: 'Tulip' },
+    { id: 'st-gardenia', name: 'Gardenia', department: 'Gardenia' },
+    { id: 'st-dahlia', name: 'Dahlia', department: 'Dahlia' },
+    { id: 'st-rose', name: 'Rose', department: 'Rose' },
+];
 
 const readJson = (file) => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null);
 
 async function main() {
     const data = readJson(DATA_FILE);
     const medicines = readJson(MEDICINES_FILE) || [];
-    if (!data) console.warn(`${DATA_FILE} not found — skipping users/stations/doctors/prescriptions/reviewStatus/audit.`);
+    // stations/doctors: use a prior deployment's own copy if it has one,
+    // otherwise fall back to the baseline this repo ships with (doctors.json
+    // is a real, committed source file — every clone has it, no data.json needed)
+    const stations = (data && data.stations && data.stations.length) ? data.stations : BASELINE_STATIONS;
+    const doctors = (data && data.doctors && data.doctors.length) ? data.doctors : (readJson(DOCTORS_FILE) || []);
+    if (!data) console.warn(`${DATA_FILE} not found — seeding baseline stations/doctors; skipping users/prescriptions/reviewStatus/audit (nothing to carry over).`);
 
     const client = await pool.connect();
     const counts = {};
@@ -61,19 +83,21 @@ async function main() {
             await client.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 1))`);
         }
 
+        // ---- stations / doctors (always seeded, with or without a prior data.json) ----
+        for (const s of stations) {
+            await client.query('INSERT INTO stations (id, name, department) VALUES ($1, $2, $3)',
+                [s.id, s.name, s.department]);
+        }
+        for (const d of doctors) {
+            await client.query('INSERT INTO doctors (id, name, license) VALUES ($1, $2, $3)',
+                [d.id, d.name, d.license || null]);
+        }
+
         if (data) {
-            // ---- users / stations / doctors ----
+            // ---- users (only from a prior deployment — no baseline makes sense here) ----
             for (const u of data.users || []) {
                 await client.query('INSERT INTO users (id, name, username, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
                     [u.id, u.name, u.username, u.password, u.role]);
-            }
-            for (const s of data.stations || []) {
-                await client.query('INSERT INTO stations (id, name, department) VALUES ($1, $2, $3)',
-                    [s.id, s.name, s.department]);
-            }
-            for (const d of data.doctors || []) {
-                await client.query('INSERT INTO doctors (id, name, license) VALUES ($1, $2, $3)',
-                    [d.id, d.name, d.license || null]);
             }
 
             // ---- prescriptions ----

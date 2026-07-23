@@ -2,6 +2,7 @@
     const $ = (id) => document.getElementById(id);
     const me = await api('/api/auth/me');
     if (!me.ok) { window.location.href = '/login'; return; }
+    if (me.data.user.role === 'it') { window.location.href = '/it'; return; }
     const user = me.data.user;
     const isStaff = user.role === 'staff';
 

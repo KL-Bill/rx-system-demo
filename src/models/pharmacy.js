@@ -4,11 +4,11 @@ const { verifyAuthorizer } = require('./auth');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-// superadmin/subadmin act with their own session; staff must supply an admin password
+// admins act with their own session; staff must supply an admin password
 const authorizeMutation = async (actor, authorizerPassword) => {
-    if (actor.role === 'superadmin' || actor.role === 'subadmin') return actor;
+    if (actor.role === 'admin') return actor;
     const admin = await verifyAuthorizer(authorizerPassword);
-    if (!admin) throw httpError(403, 'This change must be authorized by a superadmin or subadmin password.');
+    if (!admin) throw httpError(403, 'This change must be authorized by an admin password.');
     return admin;
 };
 

@@ -7,22 +7,39 @@ const drugKey = (m) => [m.genericName, m.brandName, m.formName, m.strength].map(
 const toNum = (x) => (x == null ? null : Number(x));
 
 // ---------- users ----------
+// roles: 'admin' (pharmacy head), 'staff' (pharmacy staff), 'it'
 const getUserByUsername = async (username) => {
     const { rows } = await pool.query(
-        'SELECT id, name, username, password_hash AS password, role FROM users WHERE username = $1',
+        'SELECT id, name, username, password_hash AS password, role, active FROM users WHERE username = $1',
         [username]);
     return rows[0] || null;
 };
 const getUserById = async (id) => {
     const { rows } = await pool.query(
-        'SELECT id, name, username, password_hash AS password, role FROM users WHERE id = $1', [id]);
+        'SELECT id, name, username, password_hash AS password, role, active FROM users WHERE id = $1', [id]);
     return rows[0] || null;
 };
 const getAdmins = async () => {
     const { rows } = await pool.query(
         `SELECT id, name, username, password_hash AS password, role FROM users
-         WHERE role = 'superadmin' OR role = 'subadmin'`);
+         WHERE role = 'admin' AND active`);
     return rows;
+};
+const listUsers = async () => {
+    const { rows } = await pool.query(
+        'SELECT id, name, username, role, active FROM users ORDER BY role, username');
+    return rows;
+};
+const insertUser = async ({ id, name, username, passwordHash, role }) => {
+    await pool.query(
+        'INSERT INTO users (id, name, username, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
+        [id, name, username, passwordHash, role]);
+};
+const updateUserPassword = async (id, passwordHash) => {
+    await pool.query('UPDATE users SET password_hash = $2 WHERE id = $1', [id, passwordHash]);
+};
+const setUserActive = async (id, active) => {
+    await pool.query('UPDATE users SET active = $2 WHERE id = $1', [id, active]);
 };
 
 // ---------- stations / doctors ----------
@@ -218,9 +235,62 @@ const getAudit = async () => {
     return rows.map((r) => ({ ...r, at: toNum(r.at) }));
 };
 
+// ---------- system log (IT page) ----------
+const addSystemLog = async (entry) => {
+    const id = newId('log');
+    await pool.query(`
+        INSERT INTO system_logs (id, at, type, actor, role, target, ip, details)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [id, Date.now(), entry.type, entry.actor || null, entry.role || null,
+        entry.target || null, entry.ip || null,
+        entry.details ? JSON.stringify(entry.details) : null]);
+};
+
+// filterable + paginated — this table grows forever, never read it whole
+const getSystemLogs = async ({ type, q, from, to, limit = 100, offset = 0 } = {}) => {
+    const where = [];
+    const params = [];
+    const add = (make, value) => { params.push(value); where.push(make(`$${params.length}`)); };
+
+    if (type) add((p) => `type = ${p}`, type);
+    if (from) add((p) => `at >= ${p}`, Number(from));
+    if (to) add((p) => `at <= ${p}`, Number(to));
+    if (q) add((p) => `(actor ILIKE ${p} OR target ILIKE ${p} OR details::text ILIKE ${p})`, `%${q}%`);
+
+    const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const total = await pool.query(`SELECT count(*)::int AS n FROM system_logs ${cond}`, params);
+    const { rows } = await pool.query(`
+        SELECT id, at, type, actor, role, target, ip, details FROM system_logs
+        ${cond} ORDER BY at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, Math.min(Number(limit) || 100, 500), Number(offset) || 0]);
+    return { total: total.rows[0].n, rows: rows.map((r) => ({ ...r, at: toNum(r.at) })) };
+};
+
+const countSystemLogs = async (type, sinceMs) => {
+    const { rows } = await pool.query(
+        'SELECT count(*)::int AS n FROM system_logs WHERE type = $1 AND at >= $2', [type, sinceMs]);
+    return rows[0].n;
+};
+
+// ---------- backups (rows written by scripts/backup-db.ps1) ----------
+const getBackups = async (limit = 50) => {
+    const { rows } = await pool.query(`
+        SELECT id, at, file, size_bytes AS "sizeBytes", duration_ms AS "durationMs", status
+        FROM backups ORDER BY at DESC LIMIT $1`, [limit]);
+    return rows.map((r) => ({ ...r, at: toNum(r.at), sizeBytes: toNum(r.sizeBytes), durationMs: toNum(r.durationMs) }));
+};
+
+const countRows = async (table) => {
+    // table names come from a fixed allowlist in models/it.js, never user input
+    const { rows } = await pool.query(`SELECT count(*)::int AS n FROM ${table}`);
+    return rows[0].n;
+};
+
 module.exports = {
     norm, drugKey,
     getUserByUsername, getUserById, getAdmins,
+    listUsers, insertUser, updateUserPassword, setUserActive,
+    addSystemLog, getSystemLogs, countSystemLogs, getBackups, countRows,
     getStations, getStation, getDoctors,
     strengthLabel, getGenerics, getCombos, inHospitalFormulary, findRegistration, addToCatalog,
     addPrescription, getPrescriptions,

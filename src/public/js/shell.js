@@ -13,18 +13,36 @@
         login: svg('<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/>'),
         user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
         filter: svg('<path d="M3 4h18l-7 8v6l-4 2v-8z"/>'),
+        it: svg('<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>'),
     };
 
     const link = (href, key, label, icon, active) =>
         `<a class="rail-item${active === key ? ' active' : ''}" href="${href}">
             <span class="ico">${icon}</span><span class="txt">${label}</span></a>`;
 
-    // mode: 'pharmacy' | 'nurse';  active: 'rx' | 'review' | 'reports' | 'logs'
+    // mode: 'pharmacy' | 'nurse' | 'it';  active: 'rx' | 'review' | 'reports' | 'logs' | 'it'
     function mountRail({ mode, active }) {
         const nav = document.createElement('nav');
         nav.className = 'rail';
 
-        if (mode === 'nurse') {
+        if (mode === 'it') {
+            nav.innerHTML = `
+                <div class="rail-logo"><img src="/img/logo.jpg" alt="TMC"><span class="txt">TMC IT</span></div>
+                <div class="rail-group">
+                    <div class="rail-label">IT CONSOLE</div>
+                    ${link('/it', 'it', 'IT Console', ICONS.it, active)}
+                </div>
+                <div class="rail-spacer"></div>
+                <div class="rail-group">
+                    <div class="rail-label">ACCOUNT</div>
+                    <div class="rail-item" style="cursor:default">
+                        <span class="ico">${ICONS.user}</span><span class="txt" id="railUser"></span>
+                    </div>
+                    <button class="rail-item" type="button" id="railLogout">
+                        <span class="ico">${ICONS.logout}</span><span class="txt">Logout</span>
+                    </button>
+                </div>`;
+        } else if (mode === 'nurse') {
             nav.innerHTML = `
                 <div class="rail-logo"><img src="/img/logo.jpg" alt="TMC"><span class="txt">TMC Rx</span></div>
                 <div class="rail-group">

@@ -1,4 +1,5 @@
 const rxModel = require('../models/rx');
+const { logEvent } = require('../models/syslog');
 
 const handle = (res, err) => {
     if (err.status) return res.status(err.status).json({ success: false, message: err.message });
@@ -22,6 +23,14 @@ const catalog = async (req, res) => {
 const create = async (req, res) => {
     try {
         const result = await rxModel.createRx(req.body);
+        // station/department/med counts only — patient details stay out of the system log
+        logEvent('rx_created', req, {
+            target: `${result.station.name} · ${result.station.department}`,
+            details: {
+                meds: result.items.length,
+                flagged: result.items.filter((i) => i.reason !== 'normal').length,
+            },
+        });
         return res.status(201).json({ success: true, ...result });
     } catch (err) {
         return handle(res, err);

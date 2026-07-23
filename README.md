@@ -11,13 +11,18 @@ Rx generator + pharmacy demand tracker. Express app backed by Postgres, containe
 
 ## Deploying (this PC, or any other Windows machine)
 
-### Before you leave your current machine
+A fresh `git clone` already has everything needed to run: the drug catalog
+(`medicines.json`), the hospital stations (`scripts/migrate-to-postgres.js`'s
+`BASELINE_STATIONS` list — edit that array directly if the department names
+ever change), and 286 doctors (`doctors.json`) are all committed to git and
+load in automatically the first time you run `npm run migrate` below. Nothing
+to carry over manually for a normal fresh setup.
 
-Grab `data.json` from the repo root if you want existing users/stations/prescriptions
-to carry over. It's gitignored on purpose (so demo/prod data never lands in git),
-so `git clone` alone won't bring it — copy it manually into the new checkout
-before running the migration step below. Skip this if you're fine starting
-empty and creating your own admin login fresh.
+(The only optional case: if you're moving an *already-in-use* copy of this
+app — one that's had real prescriptions/logins created on it — its `data.json`
+holds that history and is gitignored, so it doesn't travel with `git clone`.
+Copy it into the new checkout yourself first if you want that history to
+carry over. If this is a new setup, ignore this paragraph entirely.)
 
 ### First-time setup
 
@@ -31,7 +36,7 @@ podman machine start   # if not already running
 # 2. Get the code
 git clone <your-repo-url> rx-system
 cd rx-system
-# (drop the copied data.json in here now, if you brought one)
+# (only if migrating an existing in-use copy: drop its data.json in here now)
 
 # 3. Set up the per-machine config
 Copy-Item pod.yaml.example pod.yaml
@@ -56,10 +61,11 @@ podman ps    # note the exact container names, e.g. rx-system-app / rx-system-po
 # 7. Apply the schema (one-time, first boot only)
 cmd /c "podman exec -i rx-system-postgres psql -U rxsystem -d rxsystem < db\schema.sql"
 
-# 8a. If you brought data.json over — migrate it in
+# 8. Load the catalog + baseline stations/doctors (and, if you brought an old
+#    data.json over, its users/prescriptions/history too) - always run this
 podman exec rx-system-app npm run migrate
 
-# 8b. Either way, create yourself a login (skip if migrate already brought your users over)
+# 9. Create yourself a login (skip only if step 8 brought over an existing data.json's users)
 podman exec rx-system-app npm run create-admin -- youradmin yourpassword superadmin
 ```
 
@@ -134,7 +140,7 @@ directly with `node` (outside the containers), e.g. for local development.
 Copy-Item .env.example .env   # fill in PGPASSWORD etc. for a local Postgres
 npm install
 cmd /c "psql -U postgres -d rxsystem < db\schema.sql"
-npm run migrate               # if you have an existing data.json to import
+npm run migrate               # loads the catalog + baseline stations/doctors
 npm run create-admin -- youradmin yourpassword superadmin
 npm run watch                 # nodemon
 ```
