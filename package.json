@@ -1,6 +1,6 @@
 {
   "name": "rx-system",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Rx generator + pharmacy demand tracker (demo)",
   "main": "src/server.js",
   "scripts": {
