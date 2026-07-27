@@ -75,8 +75,30 @@ Every automated thing here needs exactly one registration step before it runs
 itself — that's unavoidable on any OS (Linux would need `systemctl enable`;
 here it's `setup-windows-tasks.ps1`, run once). After that single run:
 
-- **Boot-start**: the `rx-system-start` Scheduled Task fires every time this
-  machine boots and runs `podman kube play`, no further action needed.
+- **Boot-start**: the `rx-system-start` Scheduled Task runs
+  `scripts/start-pod.ps1`, which starts `podman machine` (the VM podman itself
+  runs on — it doesn't come back up on its own after a reboot) and then
+  `podman kube play`.
+
+  **This task triggers at logon, not at system startup — so the server must be
+  set to log in automatically.** The reason: `podman machine` belongs to a
+  specific *user profile*, so the task has to run as that user to find it. A
+  task running as SYSTEM would look for a different, non-existent machine, and
+  an "at system startup" trigger under a "run only when user is logged on"
+  account never fires at all (Task Scheduler reports `0x1` /
+  `0x800710E0 — refused`). With auto-login the full chain works unattended:
+  power on → auto-login → task → podman machine → pod.
+
+  To enable auto-login on the server, run `netplwiz`, uncheck *"Users must
+  enter a user name and password to use this computer"*, and enter that
+  account's password when prompted. (If the checkbox isn't shown, set
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device
+  \DevicePasswordLessBuildVersion` to `0` and reopen `netplwiz`.) Treat the
+  server as physically secured — auto-login means anyone at the keyboard is
+  already signed in.
+
+  The task runs hidden; its output goes to `logs/start-pod.log` — check there
+  first if the pod isn't up after a reboot.
 - **Crash-restart**: handled by Podman itself (`restartPolicy: Always` in
   `pod.yaml`) — if a container dies, Podman restarts it. Nothing OS-level
   involved, works identically on Windows/Linux/Mac.
@@ -113,6 +135,8 @@ staff just see a brief reconnect.
 | Create another admin login | `podman exec rx-system-app npm run create-admin -- <username> <password> [role]` |
 | Manual backup | `.\scripts\backup-db.ps1` |
 | Check scheduled tasks | `Get-ScheduledTask rx-system-start, rx-system-backup \| Get-ScheduledTaskInfo` |
+| Why didn't the pod start at boot? | `Get-Content logs\start-pod.log -Tail 40` |
+| Start the pod by hand | `.\scripts\start-pod.ps1` |
 | Rebuild the drug catalog | `node scripts/build-medicines.js && node scripts/tag-pnf.js` (run locally, not in the container — the source files it needs aren't shipped in the image; commit the regenerated `medicines.json` and redeploy) |
 
 ### Restoring from a backup

@@ -2,8 +2,9 @@
 # and the image is built. Registers two Windows Scheduled Tasks - the
 # Windows equivalent of what Quadlet/systemd does on Linux:
 #
-#   rx-system-start   starts the pod at system boot, and restarts it if this
-#                     task is ever run again (safe to re-run)
+#   rx-system-start   starts podman machine (the VM podman itself runs on -
+#                     it does NOT come back up on its own after a reboot)
+#                     then the pod, at system boot; safe to re-run
 #   rx-system-backup  runs scripts/backup-db.ps1 every 12 hours, forever
 #
 # After this one-time run, both are fully automatic - no need to repeat this
@@ -19,17 +20,28 @@ if (-not (Test-Path $podYaml)) {
     exit 1
 }
 
-# ---- start-on-boot ----
-$startAction = New-ScheduledTaskAction -Execute "podman.exe" `
-    -Argument "kube play `"$podYaml`" --replace" -WorkingDirectory $repoRoot
-$startTrigger = New-ScheduledTaskTrigger -AtStartup
+# ---- start-at-logon ----
+# NOT -AtStartup, even though "at boot" is what we actually want: `podman
+# machine` (the Linux VM podman runs containers in on Windows) belongs to a
+# specific USER profile, so the task has to run as that user to find it. A
+# task running as SYSTEM would start a different, empty machine; and an
+# -AtStartup trigger on a "run only when user is logged on" principal never
+# fires at all (Task Scheduler reports 0x1 / 0x800710E0 - refused).
+#
+# So: trigger at logon, and set this machine to log in automatically after a
+# reboot (see "Automation" in README.md). Unattended boot then works end to
+# end - power on -> auto-login -> this task -> podman machine -> pod.
+$startAction = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$repoRoot\scripts\start-pod.ps1`"" `
+    -WorkingDirectory $repoRoot
+$startTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 Register-ScheduledTask -TaskName "rx-system-start" -Action $startAction -Trigger $startTrigger `
     -RunLevel Highest -Force | Out-Null
-Write-Host "Registered rx-system-start (runs at boot)."
+Write-Host "Registered rx-system-start (runs at logon of $env:USERNAME)."
 
 # ---- 12-hour backup ----
 $backupAction = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\scripts\backup-db.ps1`"" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$repoRoot\scripts\backup-db.ps1`"" `
     -WorkingDirectory $repoRoot
 # [TimeSpan]::MaxValue overflows Task Scheduler's duration format (its XML
 # schema rejects it) - 10 years is effectively "forever" for this purpose
