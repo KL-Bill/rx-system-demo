@@ -117,6 +117,11 @@ Get-ScheduledTask rx-system-start, rx-system-backup | Get-ScheduledTaskInfo
 git pull
 podman build -t localhost/rx-system:latest .
 podman kube play pod.yaml --replace
+
+# Apply database upgrade for older installations
+podman exec rx-system-app node scripts/migrate-add-it.js
+
+podman restart rx-system-app
 ```
 
 The Electron kiosk client (`rx-system-client`) shows a "Connecting to server…"
