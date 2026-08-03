@@ -10,6 +10,8 @@ router.post('/users', c.createUser);
 router.post('/users/:id/reset-password', c.resetPassword);
 router.post('/users/:id/active', c.setActive);
 router.get('/backups', c.backups);
+router.get('/backups/:file/download', c.downloadBackup);
+router.post('/backups/:file/restore', c.restoreBackup);
 router.get('/health', c.health);
 
 module.exports = router;

@@ -30,6 +30,17 @@ spec:
         path: /home/user/rx-system/pgdata
         type: DirectoryOrCreate
 
+    - name: backups
+      hostPath:
+        # CHANGE_ME — same rules as pgdata above (a path inside the podman
+        # machine VM, not a C:\... path). pg_dump writes here, and the app
+        # mounts it read-only so IT can download backups from the IT page.
+        # scripts/backup-db.ps1 also copies each dump out to the Windows host
+        # ($BackupDir, default C:\rx-system\backups) so backups survive even
+        # if the podman VM is lost.
+        path: /home/user/rx-system/backups
+        type: DirectoryOrCreate
+
   containers:
     - name: app
       image: localhost/rx-system:latest
@@ -45,6 +56,12 @@ spec:
         - { name: PGPASSWORD, value: "CHANGE_ME_DB_PASSWORD" }
         - { name: PGDATABASE, value: "rxsystem" }
         - { name: WEB_CONCURRENCY, value: "2" }   # fixed worker count — see .env.example
+        - { name: BACKUP_DIR, value: "/backups" }   # where the IT page reads dumps from
+      volumeMounts:
+        - name: backups
+          mountPath: /backups
+          # Writable, not read-only: restoring from the IT page takes a safety
+          # dump into this directory first so a mistaken restore is undoable.
       resources:
         limits:
           cpu: "1"
@@ -59,6 +76,8 @@ spec:
       volumeMounts:
         - name: pgdata
           mountPath: /var/lib/postgresql/data
+        - name: backups
+          mountPath: /backups   # pg_dump writes dumps here (see scripts/backup-db.ps1)
       resources:
         limits:
           cpu: "1"

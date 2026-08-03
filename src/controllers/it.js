@@ -54,9 +54,41 @@ const backups = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
+// Downloading a backup means walking off with the whole database, so the
+// event is logged BEFORE the file is sent — an aborted transfer still leaves
+// the attempt on record.
+const downloadBackup = async (req, res) => {
+    try {
+        const b = await itModel.backupPath(req.params.file);
+        logEvent('backup_downloaded', req, { target: b.file, details: { sizeBytes: b.sizeBytes } });
+        return res.download(b.path, b.file);
+    } catch (err) { return handle(res, err); }
+};
+
+// Restoring replaces the whole database — including system_logs — so the
+// event is logged AFTER it completes. Logging first would work, then be
+// wiped by the very restore it was recording. (The pre-restore state is
+// still recoverable from the safety dump this returns.)
+const restoreBackup = async (req, res) => {
+    try {
+        const result = await itModel.restoreBackup(req.params.file, req.body, req.user);
+        logEvent('backup_restored', req, {
+            target: result.restored,
+            details: { safetyBackup: result.safetyBackup },
+        });
+        return res.json({ success: true, ...result });
+    } catch (err) {
+        if (!err.status) console.error(err);
+        return handle(res, err);
+    }
+};
+
 const health = async (req, res) => {
     try { return res.json({ success: true, health: await itModel.health() }); }
     catch (err) { return handle(res, err); }
 };
 
-module.exports = { logs, audit, users, createUser, resetPassword, setActive, backups, health };
+module.exports = {
+    logs, audit, users, createUser, resetPassword, setActive,
+    backups, downloadBackup, restoreBackup, health,
+};

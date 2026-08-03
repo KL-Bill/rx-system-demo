@@ -23,6 +23,8 @@
         password_reset: ['amber', 'Password reset'],
         user_deactivated: ['red', 'Deactivated'],
         user_reactivated: ['green', 'Reactivated'],
+        backup_downloaded: ['amber', 'Backup downloaded'],
+        backup_restored: ['red', 'Backup RESTORED'],
     };
     const eventBadge = (t) => {
         const [color, label] = EVENT_BADGE[t] || ['gray', t];
@@ -187,15 +189,63 @@
             : `<div class="bk-ok">✓ Last successful backup: ${fmtDT(lastOkAt)} (runs every 12 h, 7-day retention on the host).</div>`;
 
         $('backupEmpty').style.display = backups.length ? 'none' : 'block';
-        $('backupTbl').innerHTML = backups.map((b) => `
+        $('backupTbl').innerHTML = backups.map((b) => {
+            // a plain link, not fetch() — lets the browser stream a large .sql
+            // straight to disk with its own progress/save dialog
+            const action = b.downloadable
+                ? `<a class="btn-link" href="/api/it/backups/${encodeURIComponent(b.file)}/download">Download</a>
+                   <button class="danger sm" data-restore="${escapeHtml(b.file)}" data-at="${b.at}" type="button">Restore</button>`
+                : `<span class="muted" title="Not on the server anymore — it may have passed the 7-day retention window.">—</span>`;
+            return `
             <tr>
                 <td>${fmtDT(b.at)}</td>
                 <td class="mono">${escapeHtml(b.file)}</td>
                 <td>${fmtSize(b.sizeBytes)}</td>
                 <td>${b.durationMs == null ? '—' : (b.durationMs / 1000).toFixed(1) + 's'}</td>
                 <td>${b.status === 'ok' ? '<span class="badge green">ok</span>' : '<span class="badge red">failed</span>'}</td>
-            </tr>`).join('');
+                <td><div class="row-actions">${action}</div></td>
+            </tr>`;
+        }).join('');
+
+        $('backupTbl').querySelectorAll('button[data-restore]').forEach((b) => {
+            b.onclick = () => openRestoreModal(b.dataset.restore, Number(b.dataset.at));
+        });
     }
+
+    // ---------- restore ----------
+    const restoreModal = $('restoreModalBg');
+    let restoreFile = null;
+
+    function openRestoreModal(file, at) {
+        restoreFile = file;
+        $('rsFile').textContent = file;
+        $('rsLoss').textContent = `Everything recorded since ${fmtDT(at)} — prescriptions, accounts, logs — will be lost.`;
+        $('rsConfirm').value = '';
+        $('rsPassword').value = '';
+        $('rsErr').textContent = '';
+        restoreModal.classList.add('show');
+    }
+
+    $('restoreBtn').onclick = async () => {
+        const btn = $('restoreBtn');
+        $('rsErr').textContent = '';
+        // a big database takes a while to dump + reload; don't let a second
+        // click fire a concurrent restore
+        btn.disabled = true;
+        btn.textContent = 'Restoring…';
+        const res = await api(`/api/it/backups/${encodeURIComponent(restoreFile)}/restore`, {
+            body: { confirm: $('rsConfirm').value.trim(), password: $('rsPassword').value },
+        });
+        btn.disabled = false;
+        btn.textContent = 'Restore database';
+
+        if (!res.ok) { $('rsErr').textContent = res.data.message || 'Restore failed'; return; }
+        restoreModal.classList.remove('show');
+        alert(`Database restored from ${res.data.restored}.\n\nA safety backup of the previous data was saved as:\n${res.data.safetyBackup}`);
+        // the restored database may not contain this IT account at all — a
+        // reload lands on /login if the session is no longer valid
+        window.location.reload();
+    };
 
     loadHealth();
     loadLogs();

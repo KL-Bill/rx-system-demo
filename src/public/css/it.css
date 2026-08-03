@@ -14,8 +14,19 @@
 .bk-ok { background: var(--green-soft); color: var(--green-dark); }
 .bk-stale { background: var(--red-soft); color: var(--red); font-weight: 600; }
 
+.dangerbox {
+    background: var(--red-soft); color: var(--red); border-radius: 10px;
+    padding: 12px 14px; font-size: 13px; line-height: 1.5; margin: 10px 0 4px;
+}
 .modal .err { color: var(--red); font-size: 12.5px; min-height: 16px; margin-top: 8px; }
 .modal .sub { font-size: 12.5px; }
 
 tr.inactive td { color: var(--muted); }
-.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+
+/* styled as a button but kept an <a> so the browser handles the file save */
+.btn-link {
+    display: inline-block; text-decoration: none; background: var(--navy-soft); color: var(--navy);
+    padding: 7px 11px; font-size: 12.5px; font-weight: 600; border-radius: 8px;
+}
+.btn-link:hover { background: #dfe8fa; }

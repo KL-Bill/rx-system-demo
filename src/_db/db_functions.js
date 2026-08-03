@@ -280,6 +280,27 @@ const getBackups = async (limit = 50) => {
     return rows.map((r) => ({ ...r, at: toNum(r.at), sizeBytes: toNum(r.sizeBytes), durationMs: toNum(r.durationMs) }));
 };
 
+// used by the IT page's pre-restore safety dump; scheduled backups are
+// registered by scripts/backup-db.ps1 instead
+const addBackup = async ({ at, file, sizeBytes, durationMs, status }) => {
+    await pool.query(
+        'INSERT INTO backups (at, file, size_bytes, duration_ms, status) VALUES ($1, $2, $3, $4, $5)',
+        [at || Date.now(), file, sizeBytes ?? null, durationMs ?? null, status]);
+};
+
+const getBackupFiles = async () => {
+    const { rows } = await pool.query('SELECT file FROM backups');
+    return rows.map((r) => r.file);
+};
+
+// exact-match lookup used to validate a download request — only a filename
+// this table actually knows about can ever be served
+const getBackupByFile = async (file) => {
+    const { rows } = await pool.query(
+        `SELECT id, at, file, size_bytes AS "sizeBytes", status FROM backups WHERE file = $1`, [file]);
+    return rows[0] ? { ...rows[0], at: toNum(rows[0].at), sizeBytes: toNum(rows[0].sizeBytes) } : null;
+};
+
 const countRows = async (table) => {
     // table names come from a fixed allowlist in models/it.js, never user input
     const { rows } = await pool.query(`SELECT count(*)::int AS n FROM ${table}`);
@@ -290,7 +311,8 @@ module.exports = {
     norm, drugKey,
     getUserByUsername, getUserById, getAdmins,
     listUsers, insertUser, updateUserPassword, setUserActive,
-    addSystemLog, getSystemLogs, countSystemLogs, getBackups, countRows,
+    addSystemLog, getSystemLogs, countSystemLogs,
+    getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
     strengthLabel, getGenerics, getCombos, inHospitalFormulary, findRegistration, addToCatalog,
     addPrescription, getPrescriptions,

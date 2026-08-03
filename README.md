@@ -144,11 +144,63 @@ staff just see a brief reconnect.
 | Start the pod by hand | `.\scripts\start-pod.ps1` |
 | Rebuild the drug catalog | `node scripts/build-medicines.js && node scripts/tag-pnf.js` (run locally, not in the container — the source files it needs aren't shipped in the image; commit the regenerated `medicines.json` and redeploy) |
 
+### Backups — where the files actually are
+
+Each run of `scripts/backup-db.ps1` writes the same dump to two places:
+
+- **`/backups` inside the pod** (the `backups` volume in `pod.yaml`). The app
+  mounts this read-only, which is what makes the **Download** button on the IT
+  page work — a container can't reach the Windows filesystem otherwise.
+- **`C:\rx-system\backups` on the Windows host** (copied out with `podman cp`).
+  This is the copy that survives if the podman machine VM is lost or rebuilt,
+  so it's the real safety net.
+
+Both are pruned after 7 days, along with the matching rows in the `backups`
+table, so the IT page never lists a backup that can't be downloaded.
+
+Note that `podman cp` only gets a dump onto the *server's* disk. To get one
+onto an IT workstation, either use the IT page's Download button, or share
+`C:\rx-system\backups` over the network. Every download is recorded in the
+system log (`backup_downloaded`) — it's a copy of the whole database leaving
+the server.
+
+### Restoring from the IT page
+
+The Backups tab has a **Restore** button per backup. It requires typing the
+filename and re-entering the IT password, and it dumps the current database to
+a `-pre-restore.sql` safety backup first — so a mistaken restore can be walked
+back by restoring that file.
+
+The restore runs in a single transaction (`--single-transaction` +
+`ON_ERROR_STOP`), so a failure rolls back completely and leaves the live
+database untouched rather than half-restored.
+
+Two things to know:
+
+- **A restore replaces `users` too.** If the backup predates an IT account,
+  that login disappears with it — recover by restoring the safety backup from
+  the server console (see below).
+- **Client and server Postgres versions must match.** The app image installs
+  `postgresql16-client` to pair with `postgres:16-alpine`; bump both together
+  or dumps will fail to load (a v17 dump uses syntax v16 rejects, and vice
+  versa).
+
 ### Restoring from a backup
 
+Dumps are taken with `--clean --if-exists`, so restoring REPLACES the current
+contents — the file drops each object before recreating it. Everything written
+since that backup was taken is gone. Take a fresh backup first if the current
+data matters:
+
 ```powershell
-cmd /c "podman exec -i rx-system-postgres psql -U rxsystem -d rxsystem < C:\rx-system\backups\rx-system-<timestamp>.sql"
+.\scripts\backup-db.ps1
+podman exec rx-system-postgres psql -U rxsystem -d rxsystem -f /backups/rx-system-<timestamp>.sql
 ```
+
+(Backups taken before the `--clean` flag was added restore *only onto an empty
+database*. Against a populated one they fail every statement with "already
+exists" and change nothing — check the output for `ERROR` lines rather than
+assuming a silent run succeeded.)
 
 ## Environment variables
 

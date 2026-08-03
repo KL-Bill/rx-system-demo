@@ -46,6 +46,8 @@
                     <option value="password_reset">Password reset</option>
                     <option value="user_deactivated">Account deactivated</option>
                     <option value="user_reactivated">Account reactivated</option>
+                    <option value="backup_downloaded">Backup downloaded</option>
+                    <option value="backup_restored">Backup restored</option>
                 </select>
                 <input type="date" id="from" style="max-width:160px">
                 <input type="date" id="to" style="max-width:160px">
@@ -97,7 +99,7 @@
             <div id="backupStatus"></div>
             <div class="tbl-wrap">
                 <table class="dense">
-                    <thead><tr><th>When</th><th>File</th><th>Size</th><th>Duration</th><th>Status</th></tr></thead>
+                    <thead><tr><th>When</th><th>File</th><th>Size</th><th>Duration</th><th>Status</th><th></th></tr></thead>
                     <tbody id="backupTbl"></tbody>
                 </table>
             </div>
@@ -129,6 +131,28 @@
             <div class="actions">
                 <button class="ghost" data-close type="button">Cancel</button>
                 <button id="createUserBtn" type="button">Create account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== restore modal ===== -->
+    <div class="modal-bg" id="restoreModalBg">
+        <div class="modal">
+            <h3>Restore this backup?</h3>
+            <div class="dangerbox">
+                <b>This replaces the entire live database.</b>
+                <span id="rsLoss"></span>
+                A safety backup of the current data is taken first, so this can be undone.
+            </div>
+            <label for="rsConfirm">Type the filename to confirm</label>
+            <div class="mono muted" id="rsFile" style="margin-bottom:6px"></div>
+            <input id="rsConfirm" autocomplete="off" spellcheck="false">
+            <label for="rsPassword">Your IT password</label>
+            <input id="rsPassword" type="password" autocomplete="current-password">
+            <div class="err" id="rsErr"></div>
+            <div class="actions">
+                <button class="ghost" data-close type="button">Cancel</button>
+                <button class="danger" id="restoreBtn" type="button">Restore database</button>
             </div>
         </div>
     </div>
