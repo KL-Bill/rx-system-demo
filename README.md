@@ -47,8 +47,9 @@ starting over, and both are made before step 3:
 #    Podman may be INSTALLED by an admin, but the machine below must be
 #    CREATED by the account that will log in on the server. Log in as that
 #    account before running these:
-whoami                                    # confirm who you are
-podman machine init --provider hyperv     # omit --provider for the WSL default
+whoami                                        # confirm who you are
+$env:CONTAINERS_MACHINE_PROVIDER = "hyperv"   # omit for the WSL default
+podman machine init
 podman machine start
 
 # 2. Get the code
@@ -151,29 +152,48 @@ is opt-in and has to be chosen when the machine is created — a machine cannot
 be switched from one provider to the other afterwards, you delete it and make
 a new one.
 
+There is **no `--provider` flag** on `podman machine init` (checked against
+podman 5.8.0). The provider comes from configuration, and is read when the
+machine is created:
+
 ```powershell
 # 1. Enable Hyper-V itself (as Administrator; requires a reboot)
 Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
 
 # 2. As the account that will own the machine (see the next section):
-podman machine list                     # if a machine already exists, it is
-podman machine stop                     #   whatever provider it was made with
-podman machine rm podman-machine-default
+podman machine list             # what you have now, and its VMType
 
-podman machine init --provider hyperv
-podman machine start
+$env:CONTAINERS_MACHINE_PROVIDER = "hyperv"
+podman machine init rx-hyperv   # a NAME keeps your existing WSL machine intact
+podman machine start rx-hyperv
 
-# 3. Confirm which provider you actually ended up on
-podman machine ssh whoami       # "core" = Hyper-V (Fedora CoreOS), "user" = WSL
+# 3. Confirm what you actually got
+podman machine list             # VMType column: hyperv vs wsl
+podman machine ssh rx-hyperv whoami    # "core" = Hyper-V (Fedora CoreOS), "user" = WSL
 ```
 
-Instead of passing `--provider` each time you can set it once, in
+To make it permanent rather than per-session, set it in
 `%APPDATA%\containers\containers.conf`:
 
 ```toml
 [machine]
 provider = "hyperv"
 ```
+
+**Images and volumes do not move between machines.** Each machine has its own
+storage, so a new one starts empty and re-pulls everything — that is true
+whether or not you keep the old machine. Naming the new machine only preserves
+the old one as a fallback. To avoid re-downloading a large image:
+
+```powershell
+podman save -o C:\temp\pg16.tar docker.io/library/postgres:16-alpine
+# ...switch machines...
+podman load -i C:\temp\pg16.tar
+```
+
+Deleting the old machine (`podman machine rm podman-machine-default`) destroys
+every image, container and volume inside it — including other projects'. Only
+do that once the new machine is working.
 
 The provider decides the in-VM home directory, which is what the `hostPath` in
 `pod.yaml` has to match — `/home/core/...` on Hyper-V, `/home/user/...` on WSL.
