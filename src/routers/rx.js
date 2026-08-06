@@ -5,7 +5,8 @@ const c = require('../controllers/rx');
 
 router.get('/stations', c.stations);
 router.get('/doctors', c.doctors);
-router.get('/catalog', c.catalog);
+router.get('/suggest', c.suggest);
+router.get('/product', c.product);
 router.post('/', c.create);
 
 module.exports = router;

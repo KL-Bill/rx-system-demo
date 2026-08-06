@@ -5,9 +5,8 @@
     mountRail({ mode: 'nurse', active: 'rx' });
 
     const $ = (id) => document.getElementById(id);
-    const eq = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
     const items = [];   // { genericName, brandName, formName, strength, quantity, isNew, inPnf, outOfStock }
-    let savedRxId = null, dragFrom = null, combos = [], masterDoctors = [];
+    let savedRxId = null, dragFrom = null, masterDoctors = [];
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
 
     // ----- stations -----
@@ -67,108 +66,136 @@
         localStorage.setItem('rx_doctors', JSON.stringify(localDoctors));
     }
 
-    // ----- catalog -----
-    combos = (await api('/api/rx/catalog')).data.combos || [];
-
     // ----- cascading builder (top-down: Generic -> Brand -> Form -> Strength) -----
+    // Searching happens on the server (/api/rx/suggest). This page used to pull
+    // the whole catalog — ~34k combinations, 5.2 MB — and filter it here, which
+    // meant every keystroke in Brand rebuilt and re-sorted 24k names on the main
+    // thread. Typing lagged and holding backspace locked the tab up hard enough
+    // that the only way out was closing the browser. Now each keystroke is
+    // debounced, superseded by the next one, and answered with at most 50 rows.
     const FIELDS = ['generic', 'brand', 'form', 'strength'];
     const fEl = { generic: 'f-generic', brand: 'f-brand', form: 'f-form', strength: 'f-strength' };
     const sEl = { generic: 'sg-generic', brand: 'sg-brand', form: 'sg-form', strength: 'sg-strength' };
-    const PRIORITY = ['generic', 'brand', 'form', 'strength'];
+    // a field is narrowed only by the fields above it in the cascade
+    const PARENTS = { generic: [], brand: ['generic'], form: ['generic', 'brand'], strength: ['generic', 'brand', 'form'] };
     const sel = () => ({ generic: $('f-generic').value.trim(), brand: $('f-brand').value.trim(), form: $('f-form').value.trim(), strength: $('f-strength').value.trim() });
 
-    // options carry ihf: does any product under this choice (given the fields above it)
-    // sit in the hospital Formulary? At strength level this is the exact combination.
-    const optionsFor = (field, s) => {
-        const higher = PRIORITY.slice(0, PRIORITY.indexOf(field));
-        const map = new Map();
-        for (const c of combos) {
-            if (!higher.every((h) => !s[h] || eq(c[h], s[h]))) continue;
-            const v = c[field];
-            if (!v) continue;
-            if (!map.has(v)) map.set(v, { ihf: false, pnf: false });
-            const e = map.get(v);
-            if (c.inFormulary) e.ihf = true;
-            if (c.inPnf) e.pnf = true;
-        }
-        return [...map.entries()].map(([value, { ihf, pnf }]) => ({ value, ihf, pnf })).sort((a, b) => a.value.localeCompare(b.value));
-    };
-    const inCatalog = (s) => combos.some((c) => FIELDS.every((f) => !s[f] || eq(c[f], s[f])));
-    const comboFor = (s) => combos.find((c) => FIELDS.every((f) => eq(c[f], s[f])));
+    const DEBOUNCE_MS = 120;
+    const CACHE_MAX = 200;          // backspacing walks back through queries already answered
+    const timers = {}, seqs = {}, aborts = {};
+    let statusSeq = 0;
+
+    const optCache = new Map(), productCache = new Map();
+    function remember(cache, key, value) {
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+        cache.set(key, value);
+        return value;
+    }
+
+    // in-flight requests for a field are aborted by the next keystroke, so a
+    // slow reply can never repaint over a newer one
+    async function fetchOptions(field, s) {
+        const params = new URLSearchParams({ field, q: s[field] });
+        PARENTS[field].forEach((p) => { if (s[p]) params.set(p, s[p]); });
+        const key = params.toString();
+        if (optCache.has(key)) return optCache.get(key);
+        if (aborts[field]) aborts[field].abort();
+        aborts[field] = new AbortController();
+        const res = await api(`/api/rx/suggest?${key}`, { signal: aborts[field].signal });
+        if (!res.ok) return [];
+        return remember(optCache, key, res.data.options || []);
+    }
+
+    // -> { ok, product } — ok:false means we could not reach the server. Never
+    // treat that as "not in the Formulary"; that is a clinical claim.
+    async function fetchProduct(s) {
+        const params = new URLSearchParams({ generic: s.generic, brand: s.brand, form: s.form, strength: s.strength });
+        const key = params.toString();
+        if (productCache.has(key)) return { ok: true, product: productCache.get(key) };
+        const res = await api(`/api/rx/product?${key}`);
+        if (!res.ok) return { ok: false, product: null };
+        return { ok: true, product: remember(productCache, key, res.data.product || null) };
+    }
 
     function showSuggest(field) {
-        const s = sel(); const typed = s[field].toLowerCase();
-        let opts = optionsFor(field, s);
-        if (typed) {
-            opts = opts.filter((o) => o.value.toLowerCase().includes(typed));
-            // closest first: exact, then starts-with, then contains — compounds (+) after plain names
-            const rank = (o) => {
-                const v = o.value.toLowerCase();
-                const pos = v === typed ? 0 : v.startsWith(typed) ? 1 : 2;
-                return pos * 2 + (o.value.includes('+') ? 1 : 0);
-            };
-            opts.sort((a, b) => rank(a) - rank(b) || a.value.localeCompare(b.value));
-        }
-        opts = opts.slice(0, 50);
+        clearTimeout(timers[field]);
+        timers[field] = setTimeout(() => runSuggest(field), DEBOUNCE_MS);
+    }
+    async function runSuggest(field) {
         const box = $(sEl[field]);
+        const mine = seqs[field] = (seqs[field] || 0) + 1;
+        let opts;
+        try { opts = await fetchOptions(field, sel()); }
+        catch { return; }                                   // aborted or offline: leave the list alone
+        if (mine !== seqs[field]) return;                   // a newer keystroke already won
+        if (document.activeElement !== $(fEl[field])) { box.style.display = 'none'; return; }
         if (!opts.length) { box.style.display = 'none'; return; }
-        box.innerHTML = opts.map((o) => `<div class="opt" data-v="${escapeHtml(o.value)}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
+        box.innerHTML = opts.map((o, i) => `<div class="opt" data-i="${i}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
         box.style.display = 'block';
-        box.querySelectorAll('.opt').forEach((opt) => {
-            opt.addEventListener('mousedown', (e) => {
+        box.querySelectorAll('.opt').forEach((el) => {
+            el.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                $(fEl[field]).value = opt.dataset.v;
+                const o = opts[Number(el.dataset.i)];
+                $(fEl[field]).value = o.value;
                 box.style.display = 'none';
-                if (field === 'generic') { $('f-brand').value = ''; $('f-form').value = ''; $('f-strength').value = ''; }
-                else if (field === 'brand') {
-                    $('f-form').value = ''; $('f-strength').value = '';
-                    const gens = [...new Set(combos.filter((c) => eq(c.brand, opt.dataset.v)).map((c) => c.generic))];
-                    if (gens.length === 1) $('f-generic').value = gens[0];
-                } else if (field === 'form') { $('f-strength').value = ''; }
+                clearBelow(field);
+                // a brand that belongs to exactly one generic fills the generic in
+                if (field === 'brand' && o.soleGeneric) $('f-generic').value = o.soleGeneric;
                 updateStatus();
             });
         });
     }
-    function updateStatus() {
+    const clearBelow = (field) => FIELDS.slice(FIELDS.indexOf(field) + 1).forEach((f) => { $(fEl[f]).value = ''; });
+
+    async function updateStatus() {
         const s = sel(); const st = $('mbStatus'); const note = $('mbNote');
+        const mine = ++statusSeq;
         note.style.display = 'none';
         if (!s.generic) { st.textContent = ''; st.className = 'mb-status'; return; }
         if (!(s.generic && s.form && s.strength)) { st.textContent = 'fill generic, form & strength'; st.className = 'mb-status muted'; return; }
-        const c = comboFor(s);
+
+        const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
+        if (mine !== statusSeq) return;                     // the fields moved on while we asked
+        if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
+
         // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
         if (c && c.volumeMl != null && !$('f-vol').value) $('f-vol').value = c.volumeMl;
+        const bits = [];
         if (c && c.inFormulary) {
             st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
-            const bits = [];
             bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
-            if (c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
-            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
         } else {
             st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
-            const bits = [];
             if (c) bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
-            if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
-            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
         }
+        if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
+        if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
     }
     FIELDS.forEach((field) => {
         const inp = $(fEl[field]);
         inp.addEventListener('input', () => {
-            if (field === 'generic') { $('f-brand').value = ''; $('f-form').value = ''; $('f-strength').value = ''; }
-            else if (field === 'brand') { $('f-form').value = ''; $('f-strength').value = ''; }
-            else if (field === 'form') { $('f-strength').value = ''; }
-            showSuggest(field); updateStatus();
+            clearBelow(field);
+            showSuggest(field);
+            clearTimeout(timers.status);
+            timers.status = setTimeout(updateStatus, DEBOUNCE_MS);
         });
         inp.addEventListener('focus', () => showSuggest(field));
         inp.addEventListener('blur', () => setTimeout(() => { $(sEl[field]).style.display = 'none'; }, 150));
     });
     function resetBuilder() { FIELDS.forEach((f) => { $(fEl[f]).value = ''; }); $('f-qty').value = '1'; $('f-vol').value = ''; updateStatus(); $('f-generic').focus(); }
     $('mbClear').onclick = resetBuilder;
-    $('mbAdd').onclick = () => {
+    $('mbAdd').onclick = async () => {
         const s = sel(); const qty = Number($('f-qty').value) || 1;
         const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
         if (!s.generic || !s.form || !s.strength) { alert('Enter at least generic, form, and strength.'); return; }
-        const c = comboFor(s);
+
+        const btn = $('mbAdd'); btn.disabled = true;
+        const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
+        btn.disabled = false;
+        // adding on a failed lookup would silently flag a stocked medicine as
+        // not-in-the-Formulary, so refuse instead of guessing
+        if (!ok) { alert('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
+
         addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
         resetBuilder();
     };

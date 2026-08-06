@@ -41,6 +41,14 @@ CREATE INDEX idx_forms_brand ON forms (brand_id);
 CREATE INDEX idx_strengths_form ON strengths (form_id);
 CREATE INDEX idx_generics_name ON generics (lower(generic_name));
 
+-- Autocomplete (db.suggestOptions) and exact product lookup (db.findProduct)
+-- both match on lower(trim(...)); the plain lower() index above cannot serve
+-- those, so each level gets a matching expression index.
+CREATE INDEX idx_generics_name_trim ON generics (lower(trim(generic_name)));
+CREATE INDEX idx_brands_name_trim ON brands (lower(trim(brand_name)));
+CREATE INDEX idx_forms_name_trim ON forms (lower(trim(form_name)));
+CREATE INDEX idx_strengths_label_trim ON strengths (lower(trim(label)));
+
 -- ---------- users / stations / doctors ----------
 -- ids keep the app's existing "prefix-uuid8" text-id scheme (see newId() in
 -- src/_db/store.js) for continuity with data already handed out to users.

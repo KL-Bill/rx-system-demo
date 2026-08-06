@@ -75,26 +75,6 @@ const COMBO_COLUMNS = `
 
 const mapCombo = (r) => ({ ...r, volumeMl: toNum(r.volumeMl) });
 
-const getCombos = async () => {
-    const { rows } = await pool.query(`
-        SELECT ${COMBO_COLUMNS}
-        FROM strengths s
-        JOIN forms f ON f.id = s.form_id
-        JOIN brands b ON b.id = f.brand_id
-        JOIN generics g ON g.id = b.generic_id
-
-        UNION ALL
-
-        SELECT g.generic_name, '', '', '', NULL, NULL, false, g.in_pnf
-        FROM generics g
-        WHERE NOT EXISTS (
-            SELECT 1 FROM brands b JOIN forms f ON f.brand_id = b.id JOIN strengths s ON s.form_id = f.id
-            WHERE b.generic_id = g.id
-        )
-    `);
-    return rows.map(mapCombo);
-};
-
 const findProduct = async ({ generic, brand = '', form = '', strength = '' }) => {
     const { rows } = await pool.query(`
         SELECT ${COMBO_COLUMNS}
@@ -109,6 +89,101 @@ const findProduct = async ({ generic, brand = '', form = '', strength = '' }) =>
         LIMIT 1
     `, [generic, brand, form, strength]);
     return rows[0] ? mapCombo(rows[0]) : null;
+};
+
+// ---------- catalog search (autocomplete) ----------
+// The browser used to download every combination — ~34k rows, 5.2 MB — and
+// filter it in JS. Once the PNF became the master list that stopped scaling:
+// each keystroke in the Brand box rebuilt and re-sorted 24k distinct brand
+// names on the main thread, so typing (and especially holding backspace) piled
+// up input events faster than they could drain and the tab locked up. Search
+// lives here now; only the rows actually shown go over the wire.
+
+const SUGGEST_COLUMN = {
+    generic: 'g.generic_name',
+    brand: 'b.brand_name',
+    form: 'f.form_name',
+    strength: 's.label',
+};
+// a field is narrowed only by the fields above it in the cascade, matching how
+// the picker reads top-down: Generic -> Brand -> Form -> Strength
+const SUGGEST_PARENTS = {
+    generic: [],
+    brand: ['generic'],
+    form: ['generic', 'brand'],
+    strength: ['generic', 'brand', 'form'],
+};
+const SUGGEST_LIMIT = 50;
+
+// LEFT JOINs throughout so a generic with no products of its own still lists
+// itself; the blank brand/form/strength it contributes is dropped by "<> ''".
+const SUGGEST_CHAIN = [
+    'generics g',
+    'LEFT JOIN brands b ON b.generic_id = g.id',
+    'LEFT JOIN forms f ON f.brand_id = b.id',
+    'LEFT JOIN strengths s ON s.form_id = f.id',
+];
+const SUGGEST_LEVEL = { generic: 0, brand: 1, form: 2, strength: 3 };
+
+// closest first: exact, then starts-with, then contains, with compounds
+// (Foo + Bar) after plain names. Ordering is on lower(): postgres:16-alpine is
+// musl-based, where en_US.utf8 still compares bytewise, so a bare ORDER BY puts
+// every ALL-CAPS brand ahead of the Mixed-Case ones and shoves half the real
+// matches past the 50-row cut.
+const suggestOrder = (expr) => `
+    CASE WHEN $1 = '' THEN 0 ELSE
+        (CASE WHEN lower(${expr}) = $1 THEN 0
+              WHEN left(lower(${expr}), length($1)) = $1 THEN 1
+              ELSE 2 END) * 2
+        + (CASE WHEN position('+' in ${expr}) > 0 THEN 1 ELSE 0 END)
+    END, lower(${expr}), ${expr}`;
+
+// -> [{ value, ihf, pnf, soleGeneric }]
+//    ihf: any product under this choice is in the hospital Formulary
+//    pnf: ...is in the Philippine National Formulary
+//    soleGeneric: the generic, when this choice has exactly one — lets picking
+//    a brand fill the generic in for the nurse
+const suggestOptions = async (field, sel = {}) => {
+    const col = SUGGEST_COLUMN[field];
+    if (!col) return [];
+
+    const params = [norm(sel.q)];
+    const parentWhere = [];
+    for (const parent of SUGGEST_PARENTS[field]) {
+        const v = norm(sel[parent]);
+        if (!v) continue;
+        params.push(v);
+        parentWhere.push(`lower(trim(${SUGGEST_COLUMN[parent]})) = $${params.length}`);
+    }
+    const scoped = (extra) => [...extra, ...parentWhere].join(' AND ');
+
+    // Two stages on purpose. Picking the 50 values first — off the narrow part
+    // of the tree, with no aggregation — then enriching only those keeps the
+    // expensive bool_or/min/max off all ~27k rows. Roughly halves the worst
+    // case (an empty Brand box) versus aggregating the whole join.
+    const { rows } = await pool.query(`
+        WITH picked AS (
+            SELECT ${col} AS value
+            FROM ${SUGGEST_CHAIN.slice(0, SUGGEST_LEVEL[field] + 1).join('\n            ')}
+            WHERE ${scoped([`${col} <> ''`, `strpos(lower(${col}), $1) > 0`])}
+            GROUP BY ${col}
+            ORDER BY ${suggestOrder(col)}
+            LIMIT ${SUGGEST_LIMIT}
+        )
+        SELECT p.value,
+               COALESCE(bool_or(s.ihf), false) AS ihf,
+               COALESCE(bool_or(g.in_pnf), false) AS pnf,
+               -- exactly one generic behind this value? min = max is far
+               -- cheaper than count(DISTINCT), which sorts every group
+               CASE WHEN min(g.generic_name) = max(g.generic_name)
+                    THEN min(g.generic_name) END AS "soleGeneric"
+        FROM ${SUGGEST_CHAIN.join('\n        ')}
+        JOIN picked p ON p.value = ${col}
+        WHERE ${scoped(['true'])}
+        GROUP BY p.value
+        ORDER BY ${suggestOrder('p.value')}
+    `, params);
+    return rows;
 };
 
 // STRICT product-level membership: a medicine is in the hospital Formulary only
@@ -314,7 +389,7 @@ module.exports = {
     addSystemLog, getSystemLogs, countSystemLogs,
     getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
-    strengthLabel, getGenerics, getCombos, inHospitalFormulary, findRegistration, addToCatalog,
+    strengthLabel, getGenerics, suggestOptions, findProduct, inHospitalFormulary, findRegistration, addToCatalog,
     addPrescription, getPrescriptions,
     getStatus, setStatus,
     addAudit, getAudit,

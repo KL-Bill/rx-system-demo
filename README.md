@@ -26,12 +26,30 @@ carry over. If this is a new setup, ignore this paragraph entirely.)
 
 ### First-time setup
 
+**Read these two first.** Both are decisions you cannot change later without
+starting over, and both are made before step 3:
+
+1. **[Which account owns podman](#which-account-owns-podman)** — the podman
+   machine belongs to the user profile that creates it. Create it as the
+   account that will log in on the server, *not* the admin used to install
+   Podman. Getting this wrong is the single most common reason the pod stops
+   coming up after a reboot, and the only fix is to redo it as the right user.
+2. **[WSL vs Hyper-V](#choosing-the-podman-machine-provider-wsl-vs-hyper-v)** —
+   a machine cannot switch providers; you delete it and make a new one. The
+   provider also decides the `hostPath` you need in step 3.
+
 ```powershell
 # 1. Install Podman Desktop (or the podman CLI) if not already installed.
 #    Podman on Windows runs containers inside a small Linux VM under the
 #    hood (`podman machine`) — you still just run `podman` commands
 #    directly from PowerShell, same as on Linux/Mac.
-podman machine start   # if not already running
+#
+#    Podman may be INSTALLED by an admin, but the machine below must be
+#    CREATED by the account that will log in on the server. Log in as that
+#    account before running these:
+whoami                                    # confirm who you are
+podman machine init --provider hyperv     # omit --provider for the WSL default
+podman machine start
 
 # 2. Get the code
 git clone <your-repo-url> rx-system
@@ -40,11 +58,18 @@ cd rx-system
 
 # 3. Set up the per-machine config
 Copy-Item pod.yaml.example pod.yaml
+podman machine ssh whoami        # tells you which home directory to use — see below
 notepad pod.yaml
 # edit pod.yaml:
-#   - hostPath path — a plain Linux-style path (e.g. /home/user/rx-system/pgdata),
-#     NOT a Windows C:\ path. This lives inside the podman machine VM and is
-#     what makes Postgres data survive container restarts/rebuilds.
+#   - hostPath path — a plain Linux-style path, NOT a Windows C:\ path. This
+#     lives inside the podman machine VM and is what makes Postgres data
+#     survive container restarts/rebuilds. WHICH path depends on the provider:
+#       WSL provider      -> user "user", use /home/user/rx-system/pgdata
+#       Hyper-V provider  -> the VM is Fedora CoreOS, whose user is "core",
+#                            so use /home/core/rx-system/pgdata
+#     `podman machine ssh whoami` above prints it. Getting this wrong isn't
+#     fatal (DirectoryOrCreate makes the directory either way) but your data
+#     ends up somewhere you won't think to look.
 #   - the two CHANGE_ME secrets (SECRET_KEY, PGPASSWORD — PGPASSWORD must
 #     match POSTGRES_PASSWORD further down in the same file)
 
@@ -52,7 +77,9 @@ notepad pod.yaml
 podman build -t localhost/rx-system:latest .
 
 # 5. Register the boot-start + 12h-backup Scheduled Tasks (one-time — see
-#    "Automation" below for what this actually does). Run as Administrator.
+#    "Automation" below for what this actually does).
+#    Run this AS THE ACCOUNT THAT WILL LOG IN ON THE SERVER — not from an
+#    admin shell belonging to someone else. See "Which account owns podman".
 .\scripts\setup-windows-tasks.ps1
 
 # 6. Confirm it's up
@@ -80,25 +107,31 @@ here it's `setup-windows-tasks.ps1`, run once). After that single run:
   runs on — it doesn't come back up on its own after a reboot) and then
   `podman kube play`.
 
-  **This task triggers at logon, not at system startup — so the server must be
-  set to log in automatically.** The reason: `podman machine` belongs to a
-  specific *user profile*, so the task has to run as that user to find it. A
-  task running as SYSTEM would look for a different, non-existent machine, and
-  an "at system startup" trigger under a "run only when user is logged on"
-  account never fires at all (Task Scheduler reports `0x1` /
-  `0x800710E0 — refused`). With auto-login the full chain works unattended:
-  power on → auto-login → task → podman machine → pod.
+  **This task triggers at logon, not at system startup.** The reason:
+  `podman machine` belongs to a specific *user profile*, so the task has to run
+  as that user to find it (see "Which account owns podman"). A task running as
+  SYSTEM would look for a different, non-existent machine, and an "at system
+  startup" trigger under a "run only when user is logged on" principal never
+  fires at all (Task Scheduler reports `0x1` / `0x800710E0 — refused`).
 
-  To enable auto-login on the server, run `netplwiz`, uncheck *"Users must
-  enter a user name and password to use this computer"*, and enter that
+  Someone logging in normally is enough — the trigger doesn't care whether the
+  password was typed or not. **Auto-login is only needed if you want the pod up
+  with nobody at the machine.** To enable it, run `netplwiz`, uncheck *"Users
+  must enter a user name and password to use this computer"*, and enter that
   account's password when prompted. (If the checkbox isn't shown, set
   `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device
   \DevicePasswordLessBuildVersion` to `0` and reopen `netplwiz`.) Treat the
-  server as physically secured — auto-login means anyone at the keyboard is
-  already signed in.
+  server as physically secured if you do — anyone at the keyboard is already
+  signed in.
 
   The task runs hidden; its output goes to `logs/start-pod.log` — check there
-  first if the pod isn't up after a reboot.
+  first if the pod isn't up after a reboot. A healthy run takes roughly 15–30
+  seconds and ends with `app is answering on port 3000`; the pod does not exist
+  until the task finishes, so "still Running" means "not deployed yet". The
+  script polls for each condition rather than sleeping a fixed amount, exits
+  early if the app is already up, and refuses to run two copies at once — two
+  overlapping runs used to destroy each other, because `kube play --replace`
+  from the second tears down the pod the first just built.
 - **Crash-restart**: handled by Podman itself (`restartPolicy: Always` in
   `pod.yaml`) — if a container dies, Podman restarts it. Nothing OS-level
   involved, works identically on Windows/Linux/Mac.
@@ -111,23 +144,134 @@ Check on them anytime with:
 Get-ScheduledTask rx-system-start, rx-system-backup | Get-ScheduledTaskInfo
 ```
 
+### Choosing the podman machine provider (WSL vs Hyper-V)
+
+Podman on Windows defaults to **WSL**. This deployment uses **Hyper-V**, which
+is opt-in and has to be chosen when the machine is created — a machine cannot
+be switched from one provider to the other afterwards, you delete it and make
+a new one.
+
+```powershell
+# 1. Enable Hyper-V itself (as Administrator; requires a reboot)
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
+
+# 2. As the account that will own the machine (see the next section):
+podman machine list                     # if a machine already exists, it is
+podman machine stop                     #   whatever provider it was made with
+podman machine rm podman-machine-default
+
+podman machine init --provider hyperv
+podman machine start
+
+# 3. Confirm which provider you actually ended up on
+podman machine ssh whoami       # "core" = Hyper-V (Fedora CoreOS), "user" = WSL
+```
+
+Instead of passing `--provider` each time you can set it once, in
+`%APPDATA%\containers\containers.conf`:
+
+```toml
+[machine]
+provider = "hyperv"
+```
+
+The provider decides the in-VM home directory, which is what the `hostPath` in
+`pod.yaml` has to match — `/home/core/...` on Hyper-V, `/home/user/...` on WSL.
+Step 3 of First-time setup covers that.
+
+### Which account owns podman
+
+The single most common way a working install stops working after a reboot.
+
+A podman machine belongs to the **user profile that created it** — its config
+lives in that user's `%LOCALAPPDATA%\containers\podman`. It is not shared
+between accounts. Install Podman as an admin, run `podman machine init` as
+that admin, then have the server log in as a standard user, and that user has
+no machine at all: `rx-system-start` fails at every boot with
+
+```
+Error: podman-machine-default: VM does not exist
+```
+
+…and no amount of retrying fixes it, because the machine it's looking for was
+never created for that account.
+
+Three things must be the same account:
+
+```
+the account that runs `podman machine init`
+  = the account that logs in on the server
+  = the account rx-system-start runs as
+```
+
+`setup-windows-tasks.ps1` registers the tasks for whoever runs it, and warns
+if that account has no machine — so run it as the account that will be logged
+in, not from an elevated shell belonging to someone else. To check at any
+time:
+
+```powershell
+whoami
+podman machine inspect podman-machine-default   # exit 0 = this account owns one
+```
+
+If it's the wrong account, `podman machine init` as the right one. There is no
+way to hand an existing machine over to another profile.
+
 ### Redeploying after a code change
 
 ```powershell
 git pull
 podman build -t localhost/rx-system:latest .
 podman kube play pod.yaml --replace
-
-# Apply database upgrade for older installations
-podman exec rx-system-app node scripts/migrate-add-it.js
-
-podman restart rx-system-app
 ```
+
+Code lives *inside* the image (`COPY . .` in the Dockerfile) — editing files
+in the repo folder on the server changes nothing until you rebuild. That's why
+this is a manual step and not just a `git pull`.
+
+**If the schema changed and you are keeping the existing database**, apply the
+matching migration before or after the rebuild. These add only what's new;
+they never drop data, and they're safe to re-run:
+
+```powershell
+podman exec rx-system-app node scripts/migrate-add-it.js              # IT page (older installs)
+podman exec rx-system-app node scripts/migrate-add-search-indexes.js  # medicine search indexes
+```
+
+You only need these on a database that already exists and is staying. A
+database created fresh from `db/schema.sql` already has everything in them —
+skip them entirely on a from-scratch build.
 
 The Electron kiosk client (`rx-system-client`) shows a "Connecting to server…"
 splash screen with a 90-second grace period before it tells staff to contact
 IT, so a routine restart like this doesn't need a maintenance-mode banner —
 staff just see a brief reconnect.
+
+### Tearing down and rebuilding from scratch
+
+For local testing, or to redo a bad install. **This destroys the database** —
+take a backup first if the data matters (`.\scripts\backup-db.ps1`).
+
+```powershell
+# 1. Remove the pod and the app image
+podman pod rm -f rx-system
+podman rmi localhost/rx-system:latest
+
+# 2. Remove the database directory. This is the step people miss: pod.yaml
+#    uses a hostPath INSIDE the podman machine VM, not a podman volume, so
+#    removing the pod, the image and the repo folder all leave it untouched.
+#    Use the path from your own pod.yaml (/home/user/... on WSL,
+#    /home/core/... on Hyper-V).
+podman machine ssh "rm -rf /home/user/rx-system/pgdata /home/user/rx-system/backups"
+
+# 3. Remove the Scheduled Tasks, if they were registered
+Unregister-ScheduledTask -TaskName rx-system-start, rx-system-backup -Confirm:$false
+```
+
+Then start again from **First-time setup**, step 3.
+
+Do **not** use `podman system prune -a` to clean up — it removes images and
+volumes belonging to every other project on the machine, not just this one.
 
 ### Day-to-day operations
 

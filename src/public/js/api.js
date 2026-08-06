@@ -5,6 +5,7 @@ async function api(path, opts = {}) {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: opts.body ? JSON.stringify(opts.body) : undefined,
+        signal: opts.signal,        // callers that supersede their own requests (autocomplete) pass one
     });
     let data = {};
     try { data = await res.json(); } catch { /* no body */ }

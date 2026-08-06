@@ -4,7 +4,22 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 
 const listStations = () => db.getStations();
 const listDoctors = () => db.getDoctors();
-const getCatalog = async () => ({ combos: await db.getCombos() });
+
+// ----- medicine picker -----
+const FIELDS = ['generic', 'brand', 'form', 'strength'];
+
+// one cascade step: the values available for `field`, given what is already picked
+const suggest = async (field, sel) => {
+    if (!FIELDS.includes(field)) throw httpError(400, 'Unknown field');
+    return { options: await db.suggestOptions(field, sel) };
+};
+
+// the exact generic+brand+form+strength product, or null when the hospital has
+// no such row — what decides "in the Formulary" for the nurse's status line
+const getProduct = async ({ generic, brand, form, strength }) => {
+    if (!String(generic || '').trim()) return { product: null };
+    return { product: await db.findProduct({ generic, brand, form, strength }) };
+};
 
 // items: [{ genericName, brandName, formName, strength, quantity, outOfStock }]
 const createRx = async ({ stationId, patient, address, age, sex, doctor, items }) => {
@@ -41,4 +56,4 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
     return { station, items: resolved };
 };
 
-module.exports = { listStations, listDoctors, getCatalog, createRx };
+module.exports = { listStations, listDoctors, suggest, getProduct, createRx };

@@ -15,9 +15,31 @@ const doctors = async (req, res) => {
     try { return res.json({ success: true, doctors: await rxModel.listDoctors() }); }
     catch (err) { return handle(res, err); }
 };
-const catalog = async (req, res) => {
-    try { return res.json({ success: true, ...(await rxModel.getCatalog()) }); }
-    catch (err) { return handle(res, err); }
+// query params arrive as strings (or arrays, on a repeated key) — flatten and
+// cap them before they reach a query
+const str = (v) => String(Array.isArray(v) ? v[0] : (v ?? '')).slice(0, 100);
+
+const suggest = async (req, res) => {
+    try {
+        const q = req.query;
+        return res.json({
+            success: true,
+            ...(await rxModel.suggest(str(q.field), {
+                q: str(q.q), generic: str(q.generic), brand: str(q.brand), form: str(q.form),
+            })),
+        });
+    } catch (err) { return handle(res, err); }
+};
+const product = async (req, res) => {
+    try {
+        const q = req.query;
+        return res.json({
+            success: true,
+            ...(await rxModel.getProduct({
+                generic: str(q.generic), brand: str(q.brand), form: str(q.form), strength: str(q.strength),
+            })),
+        });
+    } catch (err) { return handle(res, err); }
 };
 
 const create = async (req, res) => {
@@ -37,4 +59,4 @@ const create = async (req, res) => {
     }
 };
 
-module.exports = { stations, doctors, catalog, create };
+module.exports = { stations, doctors, suggest, product, create };
