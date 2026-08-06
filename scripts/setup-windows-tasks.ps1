@@ -116,20 +116,49 @@ Write-Host "Registered rx-system-start (at logon of $me, RunLevel $runLevel)."
 $backupAction = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$repoRoot\scripts\backup-db.ps1`"" `
     -WorkingDirectory $repoRoot
-# [TimeSpan]::MaxValue overflows Task Scheduler's duration format (its XML
-# schema rejects it) - 10 years is effectively "forever" for this purpose
-# and stays within the valid range.
-$onceTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Hours 12) -RepetitionDuration (New-TimeSpan -Days 3650)
+
+# Anchored to a FIXED hour, not to whenever this script happened to be run.
+# Two reasons, both learned the hard way:
+#
+#   1. These tasks are "run only when the user is logged on" (see LogonType
+#      below) - they cannot fire while the server sits at the login screen.
+#      Anchoring to the setup time is a coin flip: run the script at 14:26 and
+#      the 12-hour cycle lands at 02:26, when nobody is logged in, so half the
+#      backups are silently skipped every day.
+#   2. A -Once trigger whose start time is already in the past at the moment of
+#      registration does not fire - Task Scheduler jumps to the next
+#      repetition. The first backup then never happens, and LastTaskResult
+#      sits at 0x41303 ("task has not run") for 12 hours.
+#
+# $BackupHour and 12 hours later are both inside a normal shift, so someone is
+# logged in for both. Change it if this hospital's shifts differ.
+$BackupHour = 7                      # 07:00 and 19:00
+$firstRun = (Get-Date -Hour $BackupHour -Minute 0 -Second 0)
+if ($firstRun -lt (Get-Date)) { $firstRun = $firstRun.AddDays(1) }
+
+# Daily anchor + a 12h repetition across that day gives 07:00 and 19:00.
+# RepetitionDuration is capped at 1 day here on purpose: the -Daily trigger
+# supplies the "forever" part, so the older 3650-day duration (which existed
+# only because [TimeSpan]::MaxValue overflows Task Scheduler's XML schema) is
+# no longer needed.
+$backupTrigger = New-ScheduledTaskTrigger -Daily -At $firstRun
+$backupTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At $firstRun `
+    -RepetitionInterval (New-TimeSpan -Hours 12) -RepetitionDuration (New-TimeSpan -Days 1)).Repetition
 
 # Same account as the start task on purpose: backup-db.ps1 shells out to
 # `podman exec`, which only reaches the pod from the profile that owns it.
-Register-ScheduledTask -TaskName "rx-system-backup" -Action $backupAction -Trigger $onceTrigger `
+Register-ScheduledTask -TaskName "rx-system-backup" -Action $backupAction -Trigger $backupTrigger `
     -Settings $settings -User $me -RunLevel $runLevel -Force | Out-Null
-Write-Host "Registered rx-system-backup (runs every 12h, starting now)."
+Write-Host ("Registered rx-system-backup ({0:HH:mm} and 12h later, daily)." -f $firstRun)
 
 # start the pod right now too, instead of waiting for the next reboot
 Start-ScheduledTask -TaskName "rx-system-start"
+
+# ...and take one backup now rather than leaving the first one up to 12 hours
+# away. This also proves the task actually works, instead of it looking fine in
+# Task Scheduler and failing the first time it matters.
+Start-ScheduledTask -TaskName "rx-system-backup"
+
 Write-Host ""
 Write-Host "Pod starting now via the registered task."
 Write-Host "  Watch it:  Get-Content '$repoRoot\logs\start-pod.log' -Wait -Tail 20"
