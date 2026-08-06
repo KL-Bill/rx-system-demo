@@ -249,6 +249,69 @@ Code lives *inside* the image (`COPY . .` in the Dockerfile) — editing files
 in the repo folder on the server changes nothing until you rebuild. That's why
 this is a manual step and not just a `git pull`.
 
+**If the server has no git clone**, copy the changed files in by hand (USB,
+network share, whatever) and run the same two podman commands. Only the files
+that actually changed need to go over — there is no need to replace the whole
+folder, and replacing it wholesale is how people lose their config.
+
+Never overwrite these on the server, they are per-machine and not in git:
+
+| File | Holds |
+|---|---|
+| `pod.yaml` | `SECRET_KEY`, `PGPASSWORD`, the pgdata path |
+| `.env` | local dev config, if present |
+| `data.json` | only relevant to a pre-Postgres install |
+| `logs/` | `start-pod.log` |
+
+Nothing under `src/`, `scripts/` or `db/` is machine-specific, so those are
+always safe to overwrite. The database lives inside the podman machine, not in
+the repo folder, so copying files can't touch accounts or prescriptions.
+
+Then, if the Scheduled Task scripts changed (`start-pod.ps1`,
+`setup-windows-tasks.ps1`), re-register them — copying the files alone does
+nothing, Task Scheduler holds its own copy of the command line:
+
+```powershell
+.\scripts\setup-windows-tasks.ps1     # as the account that logs in on the server
+```
+
+#### Turning a hand-copied server into a git clone
+
+Worth doing once so later updates are a `git pull` instead of picking files
+out by hand. Do it **in place** — a fresh clone into a new folder changes the
+repo path, and the Scheduled Tasks store an absolute path to
+`scripts\start-pod.ps1`, so they would all have to be re-registered.
+
+```powershell
+cd C:\rx-system              # the existing folder, whatever path it really is
+git init
+git remote add origin <your-repo-url>
+git fetch origin
+git reset --hard origin/main
+git branch --set-upstream-to=origin/main main
+```
+
+`reset --hard` only touches files git tracks. `pod.yaml`, `.env`, `data.json`
+and `logs/` are all gitignored, so they are untracked and survive untouched —
+your `SECRET_KEY` and `PGPASSWORD` are not at risk. What it *does* overwrite is
+any hand-edit made directly on the server to a tracked file; check for those
+first if you think someone patched something in place:
+
+```powershell
+git status                   # after the fetch, before the reset
+```
+
+From then on:
+
+```powershell
+git pull
+podman build -t localhost/rx-system:latest .
+podman kube play pod.yaml --replace
+```
+
+`git pull` on its own deploys nothing — the code is baked into the image at
+build time, so the rebuild is still required.
+
 **If the schema changed and you are keeping the existing database**, apply the
 matching migration before or after the rebuild. These add only what's new;
 they never drop data, and they're safe to re-run:
