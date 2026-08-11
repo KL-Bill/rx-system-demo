@@ -39,7 +39,7 @@
 
     const miniTable = (kind, list) => `
         <table class="detail-table">
-            <thead><tr><th>${kind}</th><th>Rx</th><th>Vol</th></tr></thead>
+            <thead><tr><th>${kind}</th><th>Rx</th><th>Qty</th></tr></thead>
             <tbody>${list.map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${x.prescriptions}</td><td>${x.volume}</td></tr>`).join('')}</tbody>
         </table>`;
 
@@ -56,7 +56,7 @@
             ['Out of stock', rows.filter((r) => r.reason === 'out_of_stock').length],
             ['Anomalies', rows.filter((r) => r.reason === 'normal').length],
             ['Prescriptions', rows.reduce((s, r) => s + r.prescriptions, 0)],
-            ['Volume', rows.reduce((s, r) => s + r.volume, 0)],
+            ['Total qty', rows.reduce((s, r) => s + r.volume, 0)],
         ].map(([l, n]) => `<div class="kpi-i"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
         const table = $('reportTable');
@@ -92,7 +92,7 @@
     function csvCell(v) { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
     function exportCsv() {
         if (!rows.length) { alert('Generate a report first.'); return; }
-        const head = ['Medicine', 'Reason', 'Prescriptions', 'Volume', 'Departments (volume)', 'Doctors (volume)', 'Status'];
+        const head = ['Medicine', 'Reason', 'Prescriptions', 'Total qty', 'Departments (qty)', 'Doctors (qty)', 'Status'];
         const lines = [head.join(',')];
         rows.forEach((r) => lines.push([
             csvCell(r.label), reasonText(r.reason), r.prescriptions, r.volume,

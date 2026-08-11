@@ -195,6 +195,63 @@ const restoreBackup = async (fileName, { password, confirm }, actor) => {
     return { restored: fileName, safetyBackup: safety.file };
 };
 
+// ---------- prescriptions ----------
+// IT can remove prescriptions that are wrong, or left over from testing.
+// A day given as YYYY-MM-DD covers that whole local day: `to` is pushed to
+// 23:59:59.999, otherwise "1st to 5th" silently drops everything on the 5th.
+const dayStart = (s) => (s ? new Date(`${s}T00:00:00`).getTime() : null);
+const dayEnd = (s) => (s ? new Date(`${s}T23:59:59.999`).getTime() : null);
+
+const listPrescriptions = ({ from, to, limit, offset }) => db.listPrescriptionsPage({
+    from: dayStart(from),
+    to: dayEnd(to),
+    limit: Math.min(Number(limit) || 50, 200),
+    offset: Math.max(Number(offset) || 0, 0),
+});
+
+// Two modes, one entry point:
+//   ids   — the rows ticked in the table
+//   range — every row between two dates, however many pages that spans
+//
+// Both need the caller's own password re-entered and `confirm` typed as the
+// exact number of rows about to go, the same shape as restoreBackup(): the
+// point is to make the person read the count before agreeing to it. Unlike a
+// restore there is no safety dump — deleted prescriptions come back only from
+// a backup — so the count is the last line of defence.
+const deletePrescriptions = async ({ ids, from, to, password, confirm }, actor) => {
+    const user = await db.getUserById(actor.id);
+    if (!user || !(await bcrypt.compare(password || '', user.password))) {
+        throw httpError(403, 'Incorrect password');
+    }
+
+    const byIds = Array.isArray(ids) && ids.length > 0;
+    if (!byIds && !from && !to) {
+        throw httpError(400, 'Select prescriptions, or give a date range');
+    }
+
+    // what is actually about to be deleted, counted server-side — never trust
+    // a count the browser worked out
+    let expected;
+    if (byIds) {
+        expected = ids.length;
+    } else {
+        expected = (await db.listPrescriptionsPage({
+            from: dayStart(from), to: dayEnd(to), limit: 1, offset: 0,
+        })).total;
+    }
+
+    if (expected === 0) throw httpError(400, 'Nothing matches — no prescriptions were deleted');
+    if (String(confirm || '').trim() !== String(expected)) {
+        throw httpError(400, `Type ${expected} to confirm you are deleting ${expected} prescription(s)`);
+    }
+
+    const deleted = byIds
+        ? await db.deletePrescriptionsByIds(ids)
+        : await db.deletePrescriptionsByRange({ from: dayStart(from), to: dayEnd(to) });
+
+    return { deleted, mode: byIds ? 'selection' : 'range', from: from || null, to: to || null };
+};
+
 const health = async () => {
     let dbOk = true;
     try { await pool.query('SELECT 1'); } catch { dbOk = false; }
@@ -213,4 +270,5 @@ const health = async () => {
 module.exports = {
     listLogs, listAudit, listUsers, createUser, resetPassword, setActive,
     listBackups, backupPath, restoreBackup, health,
+    listPrescriptions, deletePrescriptions,
 };

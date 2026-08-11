@@ -25,6 +25,7 @@
         user_reactivated: ['green', 'Reactivated'],
         backup_downloaded: ['amber', 'Backup downloaded'],
         backup_restored: ['red', 'Backup RESTORED'],
+        rx_deleted: ['red', 'Rx DELETED'],
     };
     const eventBadge = (t) => {
         const [color, label] = EVENT_BADGE[t] || ['gray', t];
@@ -37,7 +38,10 @@
             document.querySelectorAll('#tabs .tab').forEach((b) => b.classList.toggle('active', b === btn));
             document.querySelectorAll('.pane').forEach((p) => { p.style.display = 'none'; });
             $('pane-' + btn.dataset.tab).style.display = '';
-            ({ syslog: loadLogs, audit: loadAudit, accounts: loadUsers, backups: loadBackups })[btn.dataset.tab]();
+            ({
+                syslog: loadLogs, audit: loadAudit, accounts: loadUsers,
+                prescriptions: loadPrescriptions, backups: loadBackups,
+            })[btn.dataset.tab]();
         };
     });
 
@@ -175,6 +179,118 @@
     document.querySelectorAll('.modal-bg [data-close]').forEach((b) => {
         b.onclick = () => b.closest('.modal-bg').classList.remove('show');
     });
+
+    // ---------- prescriptions ----------
+    // Selection is kept in a Set of ids, not read off the checkboxes, so it
+    // survives paging — tick rows on page 1, page forward, come back, still
+    // ticked. "Select all" only covers the page you can see; wiping a whole
+    // test period is what "Delete all in range" is for.
+    let rxOffset = 0, rxTotal = 0, rxRows = [];
+    const rxPicked = new Set();
+
+    const rxRange = () => ({ from: $('rxFrom').value, to: $('rxTo').value });
+
+    function rxSyncButtons() {
+        const { from, to } = rxRange();
+        $('rxDelSel').disabled = rxPicked.size === 0;
+        $('rxDelSel').textContent = rxPicked.size ? `Delete selected (${rxPicked.size})` : 'Delete selected';
+        // deleting "everything, no filter" is not something to offer behind a
+        // single click — a range has to be set first
+        $('rxDelRange').disabled = !(from || to) || rxTotal === 0;
+        $('rxDelRange').textContent = (from || to) && rxTotal ? `Delete all in range (${rxTotal})` : 'Delete all in range';
+        const boxes = [...$('rxTbl').querySelectorAll('input[data-rx]')];
+        $('rxAll').checked = boxes.length > 0 && boxes.every((b) => b.checked);
+    }
+
+    async function loadPrescriptions() {
+        const { from, to } = rxRange();
+        const p = new URLSearchParams({ limit: PAGE, offset: rxOffset });
+        if (from) p.set('from', from);
+        if (to) p.set('to', to);
+        const res = await api('/api/it/prescriptions?' + p.toString());
+        if (!res.ok) return;
+
+        rxTotal = res.data.total;
+        rxRows = res.data.prescriptions;
+        $('rxCount').textContent = `${rxTotal} prescription${rxTotal === 1 ? '' : 's'}`;
+        $('rxEmpty').style.display = rxRows.length ? 'none' : 'block';
+        $('rxTbl').innerHTML = rxRows.map((r) => `
+            <tr>
+                <td><input type="checkbox" data-rx="${escapeHtml(r.id)}" ${rxPicked.has(r.id) ? 'checked' : ''}></td>
+                <td>${fmtDT(r.createdAt)}</td>
+                <td>${escapeHtml(r.station || '—')}</td>
+                <td>${escapeHtml(r.department || '—')}</td>
+                <td>${escapeHtml(drName(r.doctor) || '—')}</td>
+                <td>${r.meds}</td>
+            </tr>`).join('');
+
+        $('rxTbl').querySelectorAll('input[data-rx]').forEach((cb) => {
+            cb.onchange = () => {
+                if (cb.checked) rxPicked.add(cb.dataset.rx); else rxPicked.delete(cb.dataset.rx);
+                rxSyncButtons();
+            };
+        });
+
+        const pgTotal = Math.max(1, Math.ceil(rxTotal / PAGE));
+        $('rxPgInfo').textContent = `page ${Math.floor(rxOffset / PAGE) + 1} of ${pgTotal}`;
+        $('rxPrev').disabled = rxOffset === 0;
+        $('rxNext').disabled = rxOffset + PAGE >= rxTotal;
+        rxSyncButtons();
+    }
+
+    $('rxAll').onchange = () => {
+        $('rxTbl').querySelectorAll('input[data-rx]').forEach((cb) => {
+            cb.checked = $('rxAll').checked;
+            if (cb.checked) rxPicked.add(cb.dataset.rx); else rxPicked.delete(cb.dataset.rx);
+        });
+        rxSyncButtons();
+    };
+    $('rxRefresh').onclick = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); };
+    $('rxClear').onclick = () => {
+        $('rxFrom').value = ''; $('rxTo').value = '';
+        rxOffset = 0; rxPicked.clear(); loadPrescriptions();
+    };
+    ['rxFrom', 'rxTo'].forEach((id) => { $(id).onchange = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); }; });
+    $('rxPrev').onclick = () => { rxOffset = Math.max(0, rxOffset - PAGE); loadPrescriptions(); };
+    $('rxNext').onclick = () => { rxOffset += PAGE; loadPrescriptions(); };
+
+    // delete modal — mode is 'selection' or 'range'
+    const rxDelModal = $('rxDelModalBg');
+    let rxDelMode = 'selection';
+    function openRxDelModal(mode) {
+        rxDelMode = mode;
+        const { from, to } = rxRange();
+        const n = mode === 'selection' ? rxPicked.size : rxTotal;
+        $('rxDelWhat').textContent = mode === 'selection'
+            ? `This permanently deletes the ${n} prescription(s) you ticked.`
+            : `This permanently deletes all ${n} prescription(s) from ${from || 'the beginning'} to ${to || 'now'} — every page, not just this one.`;
+        $('rxDelCount').textContent = String(n);
+        $('rxDelConfirm').value = '';
+        $('rxDelPassword').value = '';
+        $('rxDelErr').textContent = '';
+        rxDelModal.classList.add('show');
+    }
+    $('rxDelSel').onclick = () => openRxDelModal('selection');
+    $('rxDelRange').onclick = () => openRxDelModal('range');
+
+    $('rxDelBtn').onclick = async () => {
+        $('rxDelErr').textContent = '';
+        const { from, to } = rxRange();
+        const body = {
+            confirm: $('rxDelConfirm').value,
+            password: $('rxDelPassword').value,
+            ...(rxDelMode === 'selection' ? { ids: [...rxPicked] } : { from, to }),
+        };
+        $('rxDelBtn').disabled = true;
+        const res = await api('/api/it/prescriptions/delete', { body });
+        $('rxDelBtn').disabled = false;
+        if (!res.ok) { $('rxDelErr').textContent = res.data.message || 'Delete failed'; return; }
+
+        rxDelModal.classList.remove('show');
+        rxPicked.clear();
+        rxOffset = 0;
+        loadPrescriptions(); loadHealth();
+    };
 
     // ---------- backups ----------
     async function loadBackups() {

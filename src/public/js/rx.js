@@ -5,7 +5,7 @@
     mountRail({ mode: 'nurse', active: 'rx' });
 
     const $ = (id) => document.getElementById(id);
-    const items = [];   // { genericName, brandName, formName, strength, quantity, isNew, inPnf, outOfStock }
+    const items = [];   // { genericName, brandName, formName, strength, quantity, sig, isNew, inPnf, outOfStock }
     let savedRxId = null, dragFrom = null, masterDoctors = [];
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
 
@@ -182,7 +182,11 @@
         inp.addEventListener('focus', () => showSuggest(field));
         inp.addEventListener('blur', () => setTimeout(() => { $(sEl[field]).style.display = 'none'; }, 150));
     });
-    function resetBuilder() { FIELDS.forEach((f) => { $(fEl[f]).value = ''; }); $('f-qty').value = '1'; $('f-vol').value = ''; updateStatus(); $('f-generic').focus(); }
+    function resetBuilder() {
+        FIELDS.forEach((f) => { $(fEl[f]).value = ''; });
+        $('f-qty').value = '1'; $('f-vol').value = ''; $('f-sig').value = '';
+        updateStatus(); $('f-generic').focus();
+    }
     $('mbClear').onclick = resetBuilder;
     $('mbAdd').onclick = async () => {
         const s = sel(); const qty = Number($('f-qty').value) || 1;
@@ -196,7 +200,7 @@
         // not-in-the-Formulary, so refuse instead of guessing
         if (!ok) { alert('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
 
-        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
+        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, sig: $('f-sig').value.trim(), isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
         resetBuilder();
     };
 
@@ -224,7 +228,9 @@
                 `<label class="stock-toggle"><input type="checkbox" data-stock="${i}" ${it.outOfStock ? 'checked' : ''}> No stock</label>`;
             return `<li data-i="${i}">
                 <span class="grip" draggable="true" title="Drag to reorder">⠿</span>
-                <span class="nm ${cls}">${escapeHtml(medLabel(it))} ${tags}</span>
+                <span class="nm ${cls}">${escapeHtml(medLabel(it))} ${tags}
+                    <input class="sig" type="text" data-sig="${i}" value="${escapeHtml(it.sig || '')}" placeholder="Sig — e.g. 1 tab TID for pain">
+                </span>
                 ${toggle}
                 <input class="qty" type="number" min="1" value="${it.quantity}" data-i="${i}">
                 <button class="x" data-x="${i}">✕</button>
@@ -241,6 +247,13 @@
         });
         list.querySelectorAll('input.qty').forEach((inp) => {
             inp.addEventListener('input', () => { items[Number(inp.dataset.i)].quantity = Number(inp.value) || 1; savedRxId = null; renderPreview(); });
+        });
+        // editable in place, like qty — an instruction is the kind of thing you
+        // notice is wrong while reading the preview, and re-adding the medicine
+        // just to fix a typo is worse. renderPreview() only, never render():
+        // rebuilding the list would drop focus on every keystroke.
+        list.querySelectorAll('input.sig').forEach((inp) => {
+            inp.addEventListener('input', () => { items[Number(inp.dataset.sig)].sig = inp.value; savedRxId = null; renderPreview(); });
         });
         list.querySelectorAll('input[data-stock]').forEach((cb) => {
             cb.addEventListener('change', () => { items[Number(cb.dataset.stock)].outOfStock = cb.checked; savedRxId = null; render(); });
@@ -261,6 +274,7 @@
             meds: items.map((it) => ({
                 label: medLabel(it),
                 quantity: it.quantity,
+                sig: it.sig || '',
                 cls: it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : ''),
             })),
         };
@@ -275,7 +289,7 @@
                 stationId: stationSel.value,
                 patient: $('patient').value.trim(), address: $('address').value.trim(), age: $('age').value.trim(), sex: $('sex').value.trim(),
                 doctor: { name: $('doctor').value.trim(), license: $('docLicense').value.trim(), ptr: $('docPtr').value.trim(), s2: $('docS2').value.trim() },
-                items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, outOfStock: !!it.outOfStock })),
+                items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock })),
             };
             const res = await api('/api/rx', { body: payload });
             if (!res.ok) { alert(res.data.message || 'Could not save prescription'); return; }

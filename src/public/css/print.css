@@ -52,11 +52,15 @@
     border: 1px solid #000; border-radius: 50%;
     font-size: 8px; display: flex; align-items: center; justify-content: center;
 }
-.mtext { flex: 1; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mtext-wrap { flex: 1; min-width: 0; }
+.mtext { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .mname { font-size: 10.5px; }
 .mname.isnew { font-weight: bold; }        /* not in the Formulary */
 .mname.nostock { font-style: italic; }     /* no / not enough stock */
 .mqty { white-space: nowrap; font-size: 10px; }
+/* indented under the medicine name, and never bold/italic — those two carry
+   meaning here (not in Formulary / no stock) and must not leak onto the Sig */
+.msig { font-size: 9.5px; font-weight: normal; font-style: normal; padding-left: 8px; margin-top: 1px; }
 .med-empty { color: #555; font-style: italic; }
 
 /* footer: signature, then LIC / S2 / PTR */

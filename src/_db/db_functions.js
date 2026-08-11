@@ -274,6 +274,67 @@ const getPrescriptions = async () => {
     }));
 };
 
+// IT-facing listing: newest first, filtered by date, paged. Separate from
+// getPrescriptions() above, which loads every row for demand/pharmacy
+// aggregation and has no business being paged.
+//
+// Deliberately NOT selecting the patient fields out of payload. IT deletes
+// wrong or test entries; it has no reason to read who they were for, and the
+// system log already keeps patient details out for the same reason. Date,
+// station, doctor and medicine count are enough to identify a row.
+const listPrescriptionsPage = async ({ from = null, to = null, limit = 50, offset = 0 }) => {
+    const where = [];
+    const params = [];
+    if (from != null) { params.push(from); where.push(`p.created_at >= $${params.length}`); }
+    if (to != null) { params.push(to); where.push(`p.created_at <= $${params.length}`); }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const { rows: totals } = await pool.query(
+        `SELECT count(*)::int AS n FROM prescriptions p ${clause}`, params);
+
+    params.push(limit, offset);
+    const { rows } = await pool.query(`
+        SELECT p.id, p.department, p.created_at, s.name AS station,
+               p.payload -> 'doctor' ->> 'name' AS doctor,
+               COALESCE(jsonb_array_length(p.payload -> 'items'), 0) AS meds
+        FROM prescriptions p
+        LEFT JOIN stations s ON s.id = p.station_id
+        ${clause}
+        ORDER BY p.created_at DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+
+    return {
+        total: totals[0].n,
+        prescriptions: rows.map((r) => ({
+            id: r.id, createdAt: toNum(r.created_at), station: r.station,
+            department: r.department, doctor: r.doctor, meds: toNum(r.meds),
+        })),
+    };
+};
+
+// Hard delete. Prescriptions are the source for demand counts and the pharmacy
+// dashboard, so removing rows changes those numbers — that is the point when
+// clearing test data, but it is not reversible without a backup restore.
+const deletePrescriptionsByIds = async (ids) => {
+    if (!ids.length) return 0;
+    const { rowCount } = await pool.query('DELETE FROM prescriptions WHERE id = ANY($1)', [ids]);
+    return rowCount;
+};
+
+const deletePrescriptionsByRange = async ({ from = null, to = null }) => {
+    const where = [];
+    const params = [];
+    if (from != null) { params.push(from); where.push(`created_at >= $${params.length}`); }
+    if (to != null) { params.push(to); where.push(`created_at <= $${params.length}`); }
+    // no clause at all would mean "delete everything"; the model refuses that
+    // before it reaches here, but keep the guard local too
+    if (!where.length) throw new Error('refusing to delete every prescription');
+    const { rowCount } = await pool.query(
+        `DELETE FROM prescriptions WHERE ${where.join(' AND ')}`, params);
+    return rowCount;
+};
+
 // ---------- review status ----------
 const getStatus = async (reason, key) => {
     const { rows } = await pool.query(
@@ -391,6 +452,7 @@ module.exports = {
     getStations, getStation, getDoctors,
     strengthLabel, getGenerics, suggestOptions, findProduct, inHospitalFormulary, findRegistration, addToCatalog,
     addPrescription, getPrescriptions,
+    listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange,
     getStatus, setStatus,
     addAudit, getAudit,
 };

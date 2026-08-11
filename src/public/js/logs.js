@@ -78,7 +78,8 @@
             time: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
             patient: p.patient, address: p.address, age: p.age, sex: p.sex,
             doctor: p.doctor || {},
-            meds: p.items.map((it) => ({ label: medLabelOf(it), quantity: it.quantity, cls: reasonCls(it.reason) })),
+            // sig included so Prescription Mode shows exactly what was printed
+            meds: p.items.map((it) => ({ label: medLabelOf(it), quantity: it.quantity, sig: it.sig || '', cls: reasonCls(it.reason) })),
         };
     };
 

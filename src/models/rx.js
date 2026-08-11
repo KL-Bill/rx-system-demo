@@ -40,8 +40,12 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
         const reason = !inFormulary ? 'not_in_formulary' : (raw.outOfStock ? 'out_of_stock' : 'normal');
         const registrationNumber = await db.findRegistration({ generic: genericName, brand: brandName, form: formName, strength });
         const volumeMl = Number(raw.volumeMl) > 0 ? Number(raw.volumeMl) : null;   // liquids: total mL to dispense
+        // free text, exactly as the doctor wrote it ("1 tab TID for pain").
+        // Deliberately absent from db.drugKey() — the same medicine with two
+        // different instructions is still one medicine for demand and review.
+        const sig = String(raw.sig || '').trim().slice(0, 300);
 
-        return { genericName, brandName, formName, strength, volumeMl, registrationNumber, quantity: Number(raw.quantity) || 1, reason };
+        return { genericName, brandName, formName, strength, volumeMl, registrationNumber, quantity: Number(raw.quantity) || 1, sig, reason };
     }));
 
     const doc = doctor || {};

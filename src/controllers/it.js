@@ -83,6 +83,29 @@ const restoreBackup = async (req, res) => {
     }
 };
 
+const prescriptions = async (req, res) => {
+    try {
+        const { from, to, limit, offset } = req.query;
+        return res.json({ success: true, ...(await itModel.listPrescriptions({ from, to, limit, offset })) });
+    } catch (err) { return handle(res, err); }
+};
+
+// Deleting prescriptions changes demand counts and the pharmacy dashboard, and
+// nothing short of a backup restore brings them back — so the event is logged
+// with the count and the range it covered. No patient data, same as rx_created.
+const deletePrescriptions = async (req, res) => {
+    try {
+        const result = await itModel.deletePrescriptions(req.body, req.user);
+        logEvent('rx_deleted', req, {
+            target: result.mode === 'range'
+                ? `${result.from || 'start'} → ${result.to || 'now'}`
+                : `${result.deleted} selected`,
+            details: { count: result.deleted, mode: result.mode },
+        });
+        return res.json({ success: true, ...result });
+    } catch (err) { return handle(res, err); }
+};
+
 const health = async (req, res) => {
     try { return res.json({ success: true, health: await itModel.health() }); }
     catch (err) { return handle(res, err); }
@@ -91,4 +114,5 @@ const health = async (req, res) => {
 module.exports = {
     logs, audit, users, createUser, resetPassword, setActive,
     backups, downloadBackup, restoreBackup, health,
+    prescriptions, deletePrescriptions,
 };

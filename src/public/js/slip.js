@@ -45,12 +45,19 @@
         </div>`;
     };
 
+    // The Sig goes on its own line under the medicine, matching how it is
+    // written by hand on the hospital's pads ("Sig: 1 tab TID for pain").
+    // Outside .mtext because that row is a space-between flex of name and
+    // quantity — the instruction belongs under both, not beside them.
     const medHtml = (m, n) => `
         <div class="med">
             <span class="num">${n}</span>
-            <div class="mtext">
-                <span class="mname ${m.cls || ''}">${esc(m.label)}</span>
-                <span class="mqty">#${esc(m.quantity)}</span>
+            <div class="mtext-wrap">
+                <div class="mtext">
+                    <span class="mname ${m.cls || ''}">${esc(m.label)}</span>
+                    <span class="mqty">#${esc(m.quantity)}</span>
+                </div>
+                ${m.sig ? `<div class="msig">Sig: ${esc(m.sig)}</div>` : ''}
             </div>
         </div>`;
 

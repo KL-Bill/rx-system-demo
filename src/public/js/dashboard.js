@@ -91,9 +91,12 @@
         $('empty').style.display = rows.length ? 'none' : 'block';
 
         const anom = tab === 'anomaly';
+        // "Total qty", never "Volume": a liquid medicine has a real volume in
+        // mL, and using the same word for "how many units were prescribed"
+        // made the two impossible to tell apart on screen
         $('thead').innerHTML = anom
-            ? `<th class="sel"></th><th>Medicine</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Doctors</th><th>Last prescribed</th>`
-            : `<th class="sel"><input type="checkbox" id="selAll"></th><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Volume</th><th>Departments</th><th>Status</th>`;
+            ? `<th class="sel"></th><th>Medicine</th><th>Prescriptions</th><th>Total qty</th><th>Departments</th><th>Doctors</th><th>Last prescribed</th>`
+            : `<th class="sel"><input type="checkbox" id="selAll"></th><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Total qty</th><th>Departments</th><th>Status</th>`;
 
         $('tbl').innerHTML = rows.map((r, i) => anom ? `
             <tr class="clickable" data-i="${i}">
@@ -221,6 +224,9 @@
         $('dGrid').innerHTML =
             kv('Generic', row.generic) + kv('Brand', row.brand) +
             kv('Form', row.form) + kv('Strength', row.strength) +
+            // real millilitres, unlike the "Total qty" stat above. Lists every
+            // volume seen, since one drug row can cover several.
+            kv('Volume (mL)', (row.volumesMl || []).length ? row.volumesMl.join(', ') + ' mL' : null) +
             kv('Registration No.', row.registrationNumber) + kv('Reason', reasonLabel) +
             kv('Status', row.status.replace(/_/g, ' ')) + kv('Last prescribed', fmtDT(row.lastDate));
 

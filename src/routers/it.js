@@ -9,6 +9,10 @@ router.get('/users', c.users);
 router.post('/users', c.createUser);
 router.post('/users/:id/reset-password', c.resetPassword);
 router.post('/users/:id/active', c.setActive);
+router.get('/prescriptions', c.prescriptions);
+// POST, not DELETE: the body carries the password, the confirmation and either
+// a list of ids or a date range — more than belongs in a DELETE's query string
+router.post('/prescriptions/delete', c.deletePrescriptions);
 router.get('/backups', c.backups);
 router.get('/backups/:file/download', c.downloadBackup);
 router.post('/backups/:file/restore', c.restoreBackup);

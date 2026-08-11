@@ -35,6 +35,11 @@ const statusInfo = async (reason, key) => {
     return { status, statusDate: rec ? rec.statusDate : null, resolved: status === 'added_to_formulary' || status === 'restocked' };
 };
 
+// NOTE: `volume` here means TOTAL QUANTITY PRESCRIBED — a count of units, not
+// millilitres. A liquid medicine also has a real volume (item.volumeMl, the mL
+// to dispense) and the two are completely different numbers. Every screen
+// labels this one "Total qty" / "Qty" for that reason; only mL is ever called
+// volume in the UI.
 const tally = (map, name, qty, date) => {
     const k = name || '—';
     const e = map.get(k) || { name: k, prescriptions: 0, volume: 0, lastDate: 0 };
@@ -94,10 +99,18 @@ async function detail(key, reason, { from, to } = {}) {
         rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity, volumeMl: it.volumeMl || null });
     }
     rows.sort((a, b) => b.date - a.date);
+    // The dispense volumes actually seen for this drug, as a distinct list.
+    // A list rather than one number because drugKey() is
+    // generic|brand|form|strength — no volume — so a syrup prescribed as 60 mL
+    // and as 120 mL is one row here. Showing a single figure would be picking
+    // one arbitrarily and calling it the answer.
+    const volumesMl = [...new Set(rows.map((r) => r.volumeMl).filter((v) => v != null))]
+        .sort((a, b) => a - b);
     return {
         key, reason, label, generic, brand, form, strength, registrationNumber,
         prescriptions: rows.length,
-        volume: rows.reduce((s, r) => s + r.quantity, 0),
+        volume: rows.reduce((s, r) => s + r.quantity, 0),   // total qty, not mL — see tally()
+        volumesMl,
         departments: [...new Set(rows.map((r) => r.department))],
         doctors: [...new Set(rows.map((r) => r.doctor).filter(Boolean))],
         rows,
