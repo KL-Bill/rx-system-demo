@@ -23,6 +23,7 @@
         password_reset: ['amber', 'Password reset'],
         user_deactivated: ['red', 'Deactivated'],
         user_reactivated: ['green', 'Reactivated'],
+        backup_created: ['green', 'Backup taken'],
         backup_downloaded: ['amber', 'Backup downloaded'],
         backup_restored: ['red', 'Backup RESTORED'],
         rx_deleted: ['red', 'Rx DELETED'],
@@ -293,6 +294,30 @@
     };
 
     // ---------- backups ----------
+    // pg_dump on a real database is not instant, so the button locks and says
+    // so — a second click while the first is still running would start a
+    // competing dump and register a second row.
+    $('backupNow').onclick = async () => {
+        const btn = $('backupNow'), msg = $('backupNowMsg');
+        btn.disabled = true;
+        btn.textContent = 'Backing up…';
+        msg.textContent = 'Dumping the database — this can take a moment on a large one.';
+        msg.className = 'sub';
+
+        const res = await api('/api/it/backups', { method: 'POST' });
+
+        btn.disabled = false;
+        btn.textContent = 'Back up now';
+        if (!res.ok) {
+            msg.textContent = res.data.message || 'Backup failed.';
+            msg.className = 'sub err show';
+        } else {
+            msg.textContent = `✓ ${res.data.file} — ${fmtSize(res.data.sizeBytes)} in ${Math.max(1, Math.round(res.data.durationMs / 1000))}s`;
+            msg.className = 'sub';
+        }
+        loadBackups();
+    };
+
     async function loadBackups() {
         const res = await api('/api/it/backups');
         if (!res.ok) return;

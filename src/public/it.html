@@ -48,6 +48,7 @@
                     <option value="password_reset">Password reset</option>
                     <option value="user_deactivated">Account deactivated</option>
                     <option value="user_reactivated">Account reactivated</option>
+                    <option value="backup_created">Backup taken</option>
                     <option value="backup_downloaded">Backup downloaded</option>
                     <option value="backup_restored">Backup restored</option>
                 </select>
@@ -132,6 +133,14 @@
 
         <!-- ===== Backups ===== -->
         <div class="content pane" id="pane-backups" style="display:none">
+            <div class="filters-row">
+                <button class="sm" id="backupNow" type="button">Back up now</button>
+                <span class="sub" style="margin:0">
+                    Takes the same dump as the 12-hourly task, on demand. It is written inside the pod —
+                    download it here if you need a copy off this server.
+                </span>
+            </div>
+            <div id="backupNowMsg" class="sub" style="margin:0 0 10px"></div>
             <div id="backupStatus"></div>
             <div class="tbl-wrap">
                 <table class="dense">

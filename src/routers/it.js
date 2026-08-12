@@ -14,6 +14,7 @@ router.get('/prescriptions', c.prescriptions);
 // a list of ids or a date range — more than belongs in a DELETE's query string
 router.post('/prescriptions/delete', c.deletePrescriptions);
 router.get('/backups', c.backups);
+router.post('/backups', c.createBackup);
 router.get('/backups/:file/download', c.downloadBackup);
 router.post('/backups/:file/restore', c.restoreBackup);
 router.get('/health', c.health);

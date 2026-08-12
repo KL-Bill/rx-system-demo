@@ -124,19 +124,48 @@ const stamp = () => {
     return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 };
 
-// Dump the current database into the backups volume and register it, so a
-// restore can be walked back. Same --clean --if-exists as backup-db.ps1 —
-// a dump without those flags can't be restored onto a live database.
-const safetyDump = async () => {
-    const file = `rx-system-${stamp()}-pre-restore.sql`;
+// Dump the current database into the backups volume and register it.
+// Same --clean --if-exists as backup-db.ps1 — a dump without those flags
+// cannot be restored onto a live database, it merges into it.
+//
+// A failed run is recorded too, not swallowed: a backup that silently didn't
+// happen is worse than one that visibly failed, and the IT page reads this
+// table to decide whether backups have gone stale.
+const writeDump = async (file) => {
     const full = path.join(BACKUP_DIR, file);
     const started = Date.now();
-    await run('pg_dump', ['-h', PG.host, '-p', PG.port, '-U', PG.user,
-        '--clean', '--if-exists', '-f', full, PG.database], 10 * 60 * 1000);
+    try {
+        await run('pg_dump', ['-h', PG.host, '-p', PG.port, '-U', PG.user,
+            '--clean', '--if-exists', '-f', full, PG.database], 10 * 60 * 1000);
+    } catch (err) {
+        // Best-effort: the most likely reason a dump fails is that Postgres is
+        // unreachable — in which case writing the 'failed' row fails too. Let
+        // that one go rather than have it replace the real error with a bare
+        // "Server error", which is what makes the page useless at diagnosing it.
+        try {
+            await db.addBackup({ file, sizeBytes: 0, durationMs: Date.now() - started, status: 'failed' });
+        } catch { /* database is down; the message below is what matters */ }
+        const detail = String(err.stderr || err.message).split('\n').find(Boolean) || err.message;
+        throw httpError(500, `Backup failed: ${detail}`);
+    }
     const size = fs.existsSync(full) ? fs.statSync(full).size : 0;
     await db.addBackup({ file, sizeBytes: size, durationMs: Date.now() - started, status: 'ok' });
-    return { file, sizeBytes: size };
+    return { file, sizeBytes: size, durationMs: Date.now() - started };
 };
+
+// Taken before a restore, so the restore can be walked back.
+const safetyDump = () => writeDump(`rx-system-${stamp()}-pre-restore.sql`);
+
+// "Back up now" on the IT page — the same dump the 12-hourly scheduled task
+// takes, on demand, for before a risky change or when the task has died.
+//
+// One real difference from scripts/backup-db.ps1, which the IT page states:
+// that script ALSO copies the dump out to the Windows host (C:\rx-system\
+// backups) with `podman cp`. This runs inside the container and can only reach
+// the mounted volume, so a manual backup lives in the pod only. It survives
+// container rebuilds — the volume is a hostPath — but not the loss of the
+// podman machine itself. Download it from this page for an off-box copy.
+const createBackup = async () => writeDump(`rx-system-${stamp()}.sql`);
 
 const atFromName = (file) => {
     const m = file.match(/^rx-system-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
@@ -269,6 +298,6 @@ const health = async () => {
 
 module.exports = {
     listLogs, listAudit, listUsers, createUser, resetPassword, setActive,
-    listBackups, backupPath, restoreBackup, health,
+    listBackups, backupPath, createBackup, restoreBackup, health,
     listPrescriptions, deletePrescriptions,
 };

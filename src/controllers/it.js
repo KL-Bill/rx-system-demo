@@ -54,6 +54,17 @@ const backups = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
+const createBackup = async (req, res) => {
+    try {
+        const result = await itModel.createBackup();
+        logEvent('backup_created', req, {
+            target: result.file,
+            details: { sizeBytes: result.sizeBytes, durationMs: result.durationMs },
+        });
+        return res.status(201).json({ success: true, ...result });
+    } catch (err) { return handle(res, err); }
+};
+
 // Downloading a backup means walking off with the whole database, so the
 // event is logged BEFORE the file is sent — an aborted transfer still leaves
 // the attempt on record.
@@ -113,6 +124,6 @@ const health = async (req, res) => {
 
 module.exports = {
     logs, audit, users, createUser, resetPassword, setActive,
-    backups, downloadBackup, restoreBackup, health,
+    backups, createBackup, downloadBackup, restoreBackup, health,
     prescriptions, deletePrescriptions,
 };
