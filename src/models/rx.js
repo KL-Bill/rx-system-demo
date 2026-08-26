@@ -34,11 +34,17 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
         const strength = (raw.strength || '').trim();
         if (!genericName) throw httpError(400, 'A medicine is missing a generic name');
 
+        // One lookup, two answers. These used to be separate inHospitalFormulary()
+        // and findRegistration() calls that each ran the same query — two pool
+        // checkouts per item, and Promise.all fans that out over every item at
+        // once, so a six-medicine Rx asked for twelve of the pool's ten clients
+        // and queued against itself.
+        const product = await db.findProduct({ generic: genericName, brand: brandName, form: formName, strength });
         // visible in the PNDF master list, but "new" when the hospital formulary lacks the product
-        const inFormulary = await db.inHospitalFormulary({ generic: genericName, brand: brandName, form: formName, strength });
+        const inFormulary = !!(product && product.inFormulary);
         // mutually exclusive: not-in-formulary wins; else the nurse's stock toggle; else normal
         const reason = !inFormulary ? 'not_in_formulary' : (raw.outOfStock ? 'out_of_stock' : 'normal');
-        const registrationNumber = await db.findRegistration({ generic: genericName, brand: brandName, form: formName, strength });
+        const registrationNumber = (product && product.registrationNumber) || null;
         const volumeMl = Number(raw.volumeMl) > 0 ? Number(raw.volumeMl) : null;   // liquids: total mL to dispense
         // free text, exactly as the doctor wrote it ("1 tab TID for pain").
         // Deliberately absent from db.drugKey() — the same medicine with two

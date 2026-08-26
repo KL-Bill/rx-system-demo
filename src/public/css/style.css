@@ -182,3 +182,7 @@ tr.clickable:hover td { background: #f8fafe; }
 .warnbox { background: var(--amber-soft); color: #8a5200; border-radius: 10px; padding: 12px; font-size: 13px; margin: 8px 0; }
 .errbox { background: var(--red-soft); color: var(--red); border-radius: 10px; padding: 10px; font-size: 13px; margin-top: 10px; display: none; }
 .errbox.show { display: block; }
+
+/* the "type 2 letters" row in an autocomplete box — a message, not a choice */
+.suggestions .opt.hint { cursor: default; color: var(--muted); font-style: italic; }
+.suggestions .opt.hint:hover { background: none; }

@@ -1,4 +1,5 @@
 const { pool, newId } = require('./store');
+const catalogCache = require('./catalog-cache');
 
 const norm = (x) => String(x || '').trim().toLowerCase();
 // stable identity for a prescribed product, used to group demand and key review status
@@ -114,6 +115,17 @@ const SUGGEST_PARENTS = {
     strength: ['generic', 'brand', 'form'],
 };
 const SUGGEST_LIMIT = 50;
+// strpos(lower(col), $1) cannot use an index (it matches mid-string), so every
+// search is a scan + GROUP BY of the level it sits on. With an empty q the
+// WHERE is a no-op — strpos(x, '') is 1 — and the scan covers the whole
+// catalog, which is far too expensive to fire on a focus event.
+//
+// An empty box is only worth asking about when a parent narrows it: "every form
+// this brand comes in" is a handful of rows and genuinely useful. Unparented
+// and unfiltered, it just means "read everything", so make the user type.
+const SUGGEST_MIN_Q = 2;
+const suggestWorthRunning = (field, sel) =>
+    norm(sel.q).length >= SUGGEST_MIN_Q || SUGGEST_PARENTS[field].some((p) => norm(sel[p]));
 
 // LEFT JOINs throughout so a generic with no products of its own still lists
 // itself; the blank brand/form/strength it contributes is dropped by "<> ''".
@@ -146,6 +158,16 @@ const suggestOrder = (expr) => `
 const suggestOptions = async (field, sel = {}) => {
     const col = SUGGEST_COLUMN[field];
     if (!col) return [];
+
+    // Normal path: answered from memory, no pool client taken. See
+    // catalog-cache.js for why the search does not belong in a query at all.
+    const cached = catalogCache.suggest(field, sel);
+    if (cached) return cached;
+
+    // Fallback for a cache that has not loaded yet (boot, or a failed refresh).
+    // Only this path is expensive, so only this path needs the guard: without a
+    // parent to narrow it, an empty box asks Postgres to read the whole catalog.
+    if (!suggestWorthRunning(field, sel)) return [];
 
     const params = [norm(sel.q)];
     const parentWhere = [];
@@ -189,15 +211,9 @@ const suggestOptions = async (field, sel = {}) => {
 // STRICT product-level membership: a medicine is in the hospital Formulary only
 // when this exact generic+brand+form+strength combination is a hospital product.
 // Anything else — custom strength, different brand, unknown drug — is new.
-const inHospitalFormulary = async (product) => {
-    const c = await findProduct(product);
-    return !!(c && c.inFormulary);
-};
-
-const findRegistration = async (product) => {
-    const c = await findProduct(product);
-    return (c && c.registrationNumber) || null;
-};
+// (inHospitalFormulary / findRegistration lived here — each ran findProduct
+// again for one field of the same row. Their only caller, createRx, now calls
+// findProduct once and reads both answers off it.)
 
 // mark a product as part of the hospital Formulary, creating the node when the
 // pharmacy approves something not in the merged catalog at all
@@ -247,6 +263,10 @@ const addToCatalog = async ({ genericName, brandName, formName, strength }) => {
         }
 
         await client.query('COMMIT');
+        // the only thing that changes the catalog — refresh this worker's copy
+        // and tell the others. After COMMIT on purpose: a rolled-back approval
+        // must not make the siblings re-read for nothing.
+        catalogCache.invalidate();
     } catch (e) {
         await client.query('ROLLBACK');
         throw e;
@@ -450,7 +470,7 @@ module.exports = {
     addSystemLog, getSystemLogs, countSystemLogs,
     getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
-    strengthLabel, getGenerics, suggestOptions, findProduct, inHospitalFormulary, findRegistration, addToCatalog,
+    strengthLabel, getGenerics, suggestOptions, findProduct, addToCatalog,
     addPrescription, getPrescriptions,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange,
     getStatus, setStatus,

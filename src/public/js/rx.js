@@ -81,11 +81,19 @@
     const sel = () => ({ generic: $('f-generic').value.trim(), brand: $('f-brand').value.trim(), form: $('f-form').value.trim(), strength: $('f-strength').value.trim() });
 
     const DEBOUNCE_MS = 120;
+    const MIN_Q = 2;
+    // Mirrors db.suggestWorthRunning() on the server. A "contains" search cannot
+    // use an index, so an empty box asks Postgres to read the whole catalog —
+    // and resetBuilder() focuses Generic after every Add, which fired exactly
+    // that on the way into the next medicine. An empty box still earns a query
+    // when a parent narrows it ("every form this brand comes in"); otherwise
+    // the nurse types two letters first.
+    const worthSearching = (field, s) => s[field].length >= MIN_Q || PARENTS[field].some((p) => s[p]);
     const CACHE_MAX = 200;          // backspacing walks back through queries already answered
     const timers = {}, seqs = {}, aborts = {};
     let statusSeq = 0;
 
-    const optCache = new Map(), productCache = new Map();
+    const optCache = new Map();
     function remember(cache, key, value) {
         if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
         cache.set(key, value);
@@ -108,13 +116,19 @@
 
     // -> { ok, product } — ok:false means we could not reach the server. Never
     // treat that as "not in the Formulary"; that is a clinical claim.
+    // Deliberately NOT cached, unlike the suggestions above. This is the
+    // Formulary answer — a clinical claim — so it is asked fresh every time. The
+    // browser used to remember it for the life of the page, which meant a
+    // medicine approved by the pharmacy mid-shift kept reading "not in the
+    // Formulary" off a note taken before the approval, until someone reloaded.
+    // The cost is a handful of exact, indexed lookups per medicine (this only
+    // fires once generic, form and strength are all filled), which is affordable
+    // now that autocomplete no longer touches the database at all.
     async function fetchProduct(s) {
         const params = new URLSearchParams({ generic: s.generic, brand: s.brand, form: s.form, strength: s.strength });
-        const key = params.toString();
-        if (productCache.has(key)) return { ok: true, product: productCache.get(key) };
-        const res = await api(`/api/rx/product?${key}`);
+        const res = await api(`/api/rx/product?${params}`);
         if (!res.ok) return { ok: false, product: null };
-        return { ok: true, product: remember(productCache, key, res.data.product || null) };
+        return { ok: true, product: res.data.product || null };
     }
 
     function showSuggest(field) {
@@ -123,9 +137,19 @@
     }
     async function runSuggest(field) {
         const box = $(sEl[field]);
+        const s = sel();
+        // claim the sequence even when we are not going to search: a request
+        // fired at two letters must not land after a backspace drops us below
+        // the threshold and repaint the box with rows for a query that is gone
         const mine = seqs[field] = (seqs[field] || 0) + 1;
+        if (!worthSearching(field, s)) {
+            if (aborts[field]) aborts[field].abort();
+            box.innerHTML = `<div class="opt hint">Type ${MIN_Q} letters to search…</div>`;
+            box.style.display = document.activeElement === $(fEl[field]) ? 'block' : 'none';
+            return;
+        }
         let opts;
-        try { opts = await fetchOptions(field, sel()); }
+        try { opts = await fetchOptions(field, s); }
         catch { return; }                                   // aborted or offline: leave the list alone
         if (mine !== seqs[field]) return;                   // a newer keystroke already won
         if (document.activeElement !== $(fEl[field])) { box.style.display = 'none'; return; }
