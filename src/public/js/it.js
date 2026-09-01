@@ -136,7 +136,7 @@
             if (b.dataset.act === 'pw') b.onclick = () => openPwModal(b.dataset.id, b.dataset.name);
             else b.onclick = async () => {
                 const res = await api(`/api/it/users/${b.dataset.id}/active`, { body: { active: b.dataset.to === 'true' } });
-                if (!res.ok) alert(res.data.message || 'Failed');
+                if (!res.ok) notify(res.data.message || 'Failed');
                 loadUsers(); loadHealth();
             };
         });
@@ -382,9 +382,19 @@
 
         if (!res.ok) { $('rsErr').textContent = res.data.message || 'Restore failed'; return; }
         restoreModal.classList.remove('show');
-        alert(`Database restored from ${res.data.restored}.\n\nA safety backup of the previous data was saved as:\n${res.data.safetyBackup}`);
-        // the restored database may not contain this IT account at all — a
-        // reload lands on /login if the session is no longer valid
+        // One of the few things in this app that earns a modal: it is
+        // consequential, one-way, and names a filename worth reading before it
+        // scrolls away. A toast that fades on its own is the wrong shape for it.
+        await showDialog({
+            kind: 'ok',
+            title: 'Database restored',
+            message: `Restored from ${res.data.restored}.\n\nA safety backup of the previous data was saved as:`,
+            detail: res.data.safetyBackup,
+            actions: [{ label: 'Reload console', value: 'ok', variant: 'primary' }],
+        });
+        // the restored database may not contain this IT account at all, so the
+        // console reloads either way — that lands on /login if the session is
+        // no longer valid
         window.location.reload();
     };
 

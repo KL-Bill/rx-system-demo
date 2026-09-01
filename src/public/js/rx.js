@@ -74,11 +74,8 @@
     // that the only way out was closing the browser. Now each keystroke is
     // debounced, superseded by the next one, and answered with at most 50 rows.
     const FIELDS = ['generic', 'brand', 'form', 'strength'];
-    const fEl = { generic: 'f-generic', brand: 'f-brand', form: 'f-form', strength: 'f-strength' };
-    const sEl = { generic: 'sg-generic', brand: 'sg-brand', form: 'sg-form', strength: 'sg-strength' };
     // a field is narrowed only by the fields above it in the cascade
     const PARENTS = { generic: [], brand: ['generic'], form: ['generic', 'brand'], strength: ['generic', 'brand', 'form'] };
-    const sel = () => ({ generic: $('f-generic').value.trim(), brand: $('f-brand').value.trim(), form: $('f-form').value.trim(), strength: $('f-strength').value.trim() });
 
     const DEBOUNCE_MS = 120;
     const MIN_Q = 2;
@@ -90,8 +87,6 @@
     // the nurse types two letters first.
     const worthSearching = (field, s) => s[field].length >= MIN_Q || PARENTS[field].some((p) => s[p]);
     const CACHE_MAX = 200;          // backspacing walks back through queries already answered
-    const timers = {}, seqs = {}, aborts = {};
-    let statusSeq = 0;
 
     const optCache = new Map();
     function remember(cache, key, value) {
@@ -101,8 +96,10 @@
     }
 
     // in-flight requests for a field are aborted by the next keystroke, so a
-    // slow reply can never repaint over a newer one
-    async function fetchOptions(field, s) {
+    // slow reply can never repaint over a newer one. `aborts` belongs to the
+    // cascade that asked: the Add panel and the edit dialog must never cancel
+    // each other's lookups.
+    async function fetchOptions(field, s, aborts) {
         const params = new URLSearchParams({ field, q: s[field] });
         PARENTS[field].forEach((p) => { if (s[p]) params.set(p, s[p]); });
         const key = params.toString();
@@ -131,102 +128,209 @@
         return { ok: true, product: res.data.product || null };
     }
 
-    function showSuggest(field) {
-        clearTimeout(timers[field]);
-        timers[field] = setTimeout(() => runSuggest(field), DEBOUNCE_MS);
-    }
-    async function runSuggest(field) {
-        const box = $(sEl[field]);
-        const s = sel();
-        // claim the sequence even when we are not going to search: a request
-        // fired at two letters must not land after a backspace drops us below
-        // the threshold and repaint the box with rows for a query that is gone
-        const mine = seqs[field] = (seqs[field] || 0) + 1;
-        if (!worthSearching(field, s)) {
-            if (aborts[field]) aborts[field].abort();
-            box.innerHTML = `<div class="opt hint">Type ${MIN_Q} letters to search…</div>`;
-            box.style.display = document.activeElement === $(fEl[field]) ? 'block' : 'none';
-            return;
+    // Two of these exist — the Add panel and the edit dialog. They are the same
+    // widget over different inputs, so the search, the debounce, the abort
+    // handling and the Formulary line are written once here, and the two
+    // instances differ only by which element ids they drive.
+    //   ids/sug: field -> element id of the input / of its suggestion box
+    //   clearsBelow: touching a field empties the ones under it. Right when you
+    //     are narrowing a medicine down from nothing, wrong when you are
+    //     correcting one that already exists — changing the brand there would
+    //     wipe the form and strength the nurse came in with, which is the very
+    //     retyping the edit dialog is meant to save. The dialog leaves them be
+    //     and lets the Formulary line (and the check on Save) judge the result.
+    function createCascade({ ids, sug, statusId, noteId, volId, clearsBelow = true }) {
+        const timers = {}, seqs = {}, aborts = {};
+        let statusSeq = 0;
+        const $f = (field) => $(ids[field]);
+        const values = () => {
+            const v = {};
+            FIELDS.forEach((f) => { v[f] = $f(f).value.trim(); });
+            return v;
+        };
+        const clearBelow = (field) => {
+            if (!clearsBelow) return;
+            FIELDS.slice(FIELDS.indexOf(field) + 1).forEach((f) => { $f(f).value = ''; });
+        };
+
+        function showSuggest(field) {
+            clearTimeout(timers[field]);
+            timers[field] = setTimeout(() => runSuggest(field), DEBOUNCE_MS);
         }
-        let opts;
-        try { opts = await fetchOptions(field, s); }
-        catch { return; }                                   // aborted or offline: leave the list alone
-        if (mine !== seqs[field]) return;                   // a newer keystroke already won
-        if (document.activeElement !== $(fEl[field])) { box.style.display = 'none'; return; }
-        if (!opts.length) { box.style.display = 'none'; return; }
-        box.innerHTML = opts.map((o, i) => `<div class="opt" data-i="${i}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
-        box.style.display = 'block';
-        box.querySelectorAll('.opt').forEach((el) => {
-            el.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                const o = opts[Number(el.dataset.i)];
-                $(fEl[field]).value = o.value;
-                box.style.display = 'none';
-                clearBelow(field);
-                // a brand that belongs to exactly one generic fills the generic in
-                if (field === 'brand' && o.soleGeneric) $('f-generic').value = o.soleGeneric;
-                updateStatus();
+        async function runSuggest(field) {
+            const box = $(sug[field]);
+            const s = values();
+            // claim the sequence even when we are not going to search: a request
+            // fired at two letters must not land after a backspace drops us below
+            // the threshold and repaint the box with rows for a query that is gone
+            const mine = seqs[field] = (seqs[field] || 0) + 1;
+            if (!worthSearching(field, s)) {
+                if (aborts[field]) aborts[field].abort();
+                box.innerHTML = `<div class="opt hint">Type ${MIN_Q} letters to search…</div>`;
+                box.style.display = document.activeElement === $f(field) ? 'block' : 'none';
+                return;
+            }
+            let opts;
+            try { opts = await fetchOptions(field, s, aborts); }
+            catch { return; }                                   // aborted or offline: leave the list alone
+            if (mine !== seqs[field]) return;                   // a newer keystroke already won
+            if (document.activeElement !== $f(field)) { box.style.display = 'none'; return; }
+            if (!opts.length) { box.style.display = 'none'; return; }
+            box.innerHTML = opts.map((o, i) => `<div class="opt" data-i="${i}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
+            box.style.display = 'block';
+            box.querySelectorAll('.opt').forEach((el) => {
+                el.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    const o = opts[Number(el.dataset.i)];
+                    $f(field).value = o.value;
+                    box.style.display = 'none';
+                    clearBelow(field);
+                    // a brand that belongs to exactly one generic fills the generic in
+                    if (field === 'brand' && o.soleGeneric) $f('generic').value = o.soleGeneric;
+                    updateStatus();
+                });
             });
-        });
-    }
-    const clearBelow = (field) => FIELDS.slice(FIELDS.indexOf(field) + 1).forEach((f) => { $(fEl[f]).value = ''; });
-
-    async function updateStatus() {
-        const s = sel(); const st = $('mbStatus'); const note = $('mbNote');
-        const mine = ++statusSeq;
-        note.style.display = 'none';
-        if (!s.generic) { st.textContent = ''; st.className = 'mb-status'; return; }
-        if (!(s.generic && s.form && s.strength)) { st.textContent = 'fill generic, form & strength'; st.className = 'mb-status muted'; return; }
-
-        const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
-        if (mine !== statusSeq) return;                     // the fields moved on while we asked
-        if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
-
-        // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
-        if (c && c.volumeMl != null && !$('f-vol').value) $('f-vol').value = c.volumeMl;
-        const bits = [];
-        if (c && c.inFormulary) {
-            st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
-            bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
-        } else {
-            st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
-            if (c) bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
         }
-        if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
-        if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
-    }
-    FIELDS.forEach((field) => {
-        const inp = $(fEl[field]);
-        inp.addEventListener('input', () => {
-            clearBelow(field);
-            showSuggest(field);
-            clearTimeout(timers.status);
-            timers.status = setTimeout(updateStatus, DEBOUNCE_MS);
+
+        async function updateStatus() {
+            const s = values(); const st = $(statusId); const note = $(noteId);
+            const mine = ++statusSeq;
+            note.style.display = 'none';
+            if (!s.generic) { st.textContent = ''; st.className = 'mb-status'; return; }
+            if (!(s.generic && s.form && s.strength)) { st.textContent = 'fill generic, form & strength'; st.className = 'mb-status muted'; return; }
+
+            const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
+            if (mine !== statusSeq) return;                     // the fields moved on while we asked
+            if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
+
+            // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
+            if (c && c.volumeMl != null && volId && !$(volId).value) $(volId).value = c.volumeMl;
+            const bits = [];
+            if (c && c.inFormulary) {
+                st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
+                bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
+            } else {
+                st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
+                if (c) bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
+            }
+            if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
+            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
+        }
+
+        FIELDS.forEach((field) => {
+            const inp = $f(field);
+            inp.addEventListener('input', () => {
+                clearBelow(field);
+                showSuggest(field);
+                clearTimeout(timers.status);
+                timers.status = setTimeout(updateStatus, DEBOUNCE_MS);
+            });
+            inp.addEventListener('focus', () => showSuggest(field));
+            inp.addEventListener('blur', () => setTimeout(() => { $(sug[field]).style.display = 'none'; }, 150));
         });
-        inp.addEventListener('focus', () => showSuggest(field));
-        inp.addEventListener('blur', () => setTimeout(() => { $(sEl[field]).style.display = 'none'; }, 150));
-    });
+
+        return {
+            values,
+            setValues: (v) => FIELDS.forEach((f) => { $f(f).value = v[f] || ''; }),
+            hideBoxes: () => FIELDS.forEach((f) => { $(sug[f]).style.display = 'none'; }),
+            focus: (field) => $f(field).focus(),
+            updateStatus,
+        };
+    }
+
+    const idsFor = (prefix) => Object.fromEntries(FIELDS.map((f) => [f, prefix + f]));
+    const builder = createCascade({ ids: idsFor('f-'), sug: idsFor('sg-'), statusId: 'mbStatus', noteId: 'mbNote', volId: 'f-vol' });
+    const editor = createCascade({ ids: idsFor('e-'), sug: idsFor('esg-'), statusId: 'edStatus', noteId: 'edNote', volId: 'e-vol', clearsBelow: false });
+
     function resetBuilder() {
-        FIELDS.forEach((f) => { $(fEl[f]).value = ''; });
+        builder.setValues({});
         $('f-qty').value = '1'; $('f-vol').value = ''; $('f-sig').value = '';
-        updateStatus(); $('f-generic').focus();
+        builder.updateStatus(); builder.focus('generic');
     }
     $('mbClear').onclick = resetBuilder;
     $('mbAdd').onclick = async () => {
-        const s = sel(); const qty = Number($('f-qty').value) || 1;
+        const s = builder.values(); const qty = Number($('f-qty').value) || 1;
         const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
-        if (!s.generic || !s.form || !s.strength) { alert('Enter at least generic, form, and strength.'); return; }
+        if (!s.generic || !s.form || !s.strength) {
+            // put the caret in the first box that is actually missing
+            const miss = ['generic', 'form', 'strength'].find((f) => !s[f]);
+            notify('Enter at least generic, form, and strength.', { kind: 'warn', focus: `f-${miss}` });
+            return;
+        }
 
         const btn = $('mbAdd'); btn.disabled = true;
         const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
         btn.disabled = false;
         // adding on a failed lookup would silently flag a stocked medicine as
         // not-in-the-Formulary, so refuse instead of guessing
-        if (!ok) { alert('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
+        if (!ok) { notify('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
 
         addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, sig: $('f-sig').value.trim(), isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
         resetBuilder();
     };
+
+    // ----- edit a medicine already on the list -----
+    // Correcting a brand or a strength used to mean removing the line and
+    // building it again from scratch. This dialog is the same cascade over its
+    // own inputs, so an edit is searched and checked against the Formulary
+    // exactly the way an Add is.
+    const edDlg = $('medEditDlg');
+    let editIndex = -1;
+
+    function openEditor(i) {
+        const it = items[i];
+        editIndex = i;
+        editor.setValues({ generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength });
+        $('e-vol').value = it.volumeMl == null ? '' : it.volumeMl;
+        $('e-qty').value = it.quantity;
+        $('e-sig').value = it.sig || '';
+        $('edErr').classList.remove('show');
+        edDlg.showModal();
+        editor.updateStatus();
+    }
+
+    function editError(msg, focusField) {
+        const err = $('edErr');
+        err.textContent = msg;
+        err.classList.add('show');
+        if (focusField) editor.focus(focusField);
+    }
+
+    $('edCancel').onclick = () => edDlg.close();
+    $('edSave').onclick = async () => {
+        const s = editor.values();
+        $('edErr').classList.remove('show');
+        if (!s.generic || !s.form || !s.strength) {
+            editError('Enter at least generic, form, and strength.', ['generic', 'form', 'strength'].find((f) => !s[f]));
+            return;
+        }
+
+        const btn = $('edSave'); btn.disabled = true;
+        const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
+        btn.disabled = false;
+        // the same refusal as Add, for the same reason: carrying the old
+        // not-in-the-Formulary flag onto a medicine that has just been edited
+        // would print a claim nobody checked. The dialog stays open.
+        if (!ok) { editError('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
+
+        const it = items[editIndex];
+        it.genericName = s.generic; it.brandName = s.brand; it.formName = s.form; it.strength = s.strength;
+        it.volumeMl = Number($('e-vol').value) > 0 ? Number($('e-vol').value) : null;
+        it.quantity = Number($('e-qty').value) || 1;
+        it.sig = $('e-sig').value.trim();
+        it.isNew = !(c && c.inFormulary);
+        it.inPnf = c ? !!c.inPnf : false;
+        // "no stock" is a statement about a medicine the Formulary carries; if
+        // the edit turned this into one it does not, the flag no longer means
+        // anything (render() drops the toggle for those rows too)
+        if (it.isNew) it.outOfStock = false;
+
+        savedRxId = null;               // what was recorded no longer matches the list
+        edDlg.close();
+        render();
+    };
+    // Esc closes without saving, like Cancel; leave nothing hanging behind it
+    edDlg.addEventListener('close', () => { editor.hideBoxes(); editIndex = -1; });
 
     // ----- items -----
     function medLabel(it) {
@@ -257,6 +361,7 @@
                 </span>
                 ${toggle}
                 <input class="qty" type="number" min="1" value="${it.quantity}" data-i="${i}">
+                <button class="edit" type="button" data-edit="${i}" title="Edit this medicine">Edit</button>
                 <button class="x" data-x="${i}">✕</button>
             </li>`;
         }).join('');
@@ -282,6 +387,7 @@
         list.querySelectorAll('input[data-stock]').forEach((cb) => {
             cb.addEventListener('change', () => { items[Number(cb.dataset.stock)].outOfStock = cb.checked; savedRxId = null; render(); });
         });
+        list.querySelectorAll('button.edit').forEach((b) => { b.addEventListener('click', () => openEditor(Number(b.dataset.edit))); });
         list.querySelectorAll('button.x').forEach((b) => { b.addEventListener('click', () => removeItem(Number(b.dataset.x))); });
         renderPreview();
     }
@@ -306,8 +412,37 @@
     function renderPreview() { $('preview').innerHTML = slipPagesHtml(rxData()); }
 
     // ----- print -----
+    // window.print() opens a native OS dialog, and Chromium does not reliably
+    // hand keyboard focus back to the page when it closes — the same deafness
+    // alert() caused (see notify() in js/api.js). Nothing here is cleared by
+    // printing, so after Cancel the station's work was always still on screen;
+    // the keyboard had just stopped reaching it, which reads as "cancelling
+    // threw my prescription away". So the page takes focus back itself.
+    let lastField = null;
+    document.addEventListener('focusin', (e) => {
+        if (e.target instanceof HTMLElement && e.target.matches('input, select, textarea')) lastField = e.target;
+    });
+
+    let printRestored = true;
+    function restoreFocusAfterPrint() {
+        if (printRestored) return;      // afterprint and the print() return both land here
+        printRestored = true;
+        // the sig/qty inputs are rebuilt by render(), so the remembered field
+        // may no longer be in the document
+        const target = () => (lastField && document.body.contains(lastField) ? lastField : $('f-generic'));
+        // the dialog tears down asynchronously and takes focus with it on the
+        // way out, so restoring straight away can be undone; the second pass
+        // only fires if focus really did end up nowhere
+        setTimeout(() => { window.focus(); target().focus(); }, 0);
+        setTimeout(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            window.focus(); target().focus();
+        }, 200);
+    }
+    window.addEventListener('afterprint', restoreFocusAfterPrint);
+
     $('printBtn').onclick = async () => {
-        if (!items.length) { alert('Add at least one medicine first.'); return; }
+        if (!items.length) { notify('Add at least one medicine first.', { kind: 'warn', focus: 'f-generic' }); return; }
         if (!savedRxId) {
             const payload = {
                 stationId: stationSel.value,
@@ -316,12 +451,16 @@
                 items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock })),
             };
             const res = await api('/api/rx', { body: payload });
-            if (!res.ok) { alert(res.data.message || 'Could not save prescription'); return; }
+            if (!res.ok) { notify(res.data.message || 'Could not save prescription'); return; }
             savedRxId = true;
             saveDoctor();
         }
         $('print-area').innerHTML = slipPagesHtml(rxData());
+        printRestored = false;
         window.print();
+        // afterprint covers the dialog closing; this covers the browsers that
+        // never fire it. Whichever lands first wins, the other is a no-op.
+        restoreFocusAfterPrint();
     };
     $('clearBtn').onclick = () => {
         items.length = 0; savedRxId = null;
@@ -332,6 +471,6 @@
         const el = $(id); if (el) el.addEventListener('input', renderPreview);
     });
 
-    updateStatus();
+    builder.updateStatus();
     render();
 })();

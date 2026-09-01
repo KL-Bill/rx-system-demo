@@ -172,7 +172,7 @@
         }));
         const res = await api('/api/pharmacy/status/bulk', { body: { drugs, action, authorizerPassword: pw } });
         if (res.ok) { $('bulkModal').classList.remove('show'); load(); }
-        else { $('bErr').textContent = res.data.message || 'Could not update'; $('bErr').classList.add('show'); if (!isStaff) alert(res.data.message); }
+        else { $('bErr').textContent = res.data.message || 'Could not update'; $('bErr').classList.add('show'); if (!isStaff) notify(res.data.message || 'Could not update'); }
     }
     $('bCancel').onclick = () => $('bulkModal').classList.remove('show');
     $('bConfirm').onclick = () => sendBulk(pendingAction, $('bAuth').value);

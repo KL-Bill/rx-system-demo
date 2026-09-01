@@ -186,3 +186,89 @@ tr.clickable:hover td { background: #f8fafe; }
 /* the "type 2 letters" row in an autocomplete box — a message, not a choice */
 .suggestions .opt.hint { cursor: default; color: var(--muted); font-style: italic; }
 .suggestions .opt.hint:hover { background: none; }
+
+/* ===== toasts =====
+   The in-page stand-in for alert(). See notify() in js/api.js: a native dialog
+   costs the kiosk client its keyboard focus, so this app never opens one. */
+.toasts {
+    position: fixed; right: 18px; bottom: 18px; z-index: 90;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    max-width: min(420px, calc(100vw - 36px));
+    pointer-events: none;                /* the page underneath stays clickable */
+}
+.toast {
+    pointer-events: auto;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 12px 11px 14px;
+    border-radius: 12px;
+    background: var(--card); color: var(--ink);
+    border-left: 4px solid var(--muted);
+    box-shadow: 0 10px 30px rgba(20, 48, 107, .18);
+    font-size: 13.5px; line-height: 1.35;
+    animation: toast-in .16s ease-out;
+}
+.toast.err  { background: var(--red-soft);   border-left-color: var(--red);   color: #8c1f1a; }
+.toast.warn { background: var(--amber-soft); border-left-color: var(--amber); color: #8a5200; }
+.toast.ok   { background: var(--green-soft); border-left-color: var(--green); color: var(--green-dark); }
+.toast-msg { white-space: pre-line; }    /* the restore notice is multi-line */
+.toast-x {
+    flex: none; margin-left: auto; padding: 0 2px;
+    background: none; border: 0; box-shadow: none;
+    font-size: 14px; line-height: 1; color: inherit; opacity: .55; cursor: pointer;
+}
+.toast-x:hover { opacity: 1; background: none; }
+.toast.out { opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media print { .toasts { display: none !important; } }
+
+/* ===== modal dialog =====
+   Built on the native <dialog>, so the top layer, the inert background, the
+   Tab trap, Esc and the focus hand-back are the browser's job, not ours.
+   See showDialog() in js/api.js. */
+dialog.dlg {
+    width: 100%; max-width: min(520px, calc(100vw - 32px));
+    max-height: 85vh; overflow-y: auto;
+    padding: 22px 24px 18px;
+    border: none; border-radius: 16px;
+    background: var(--card); color: var(--ink);
+    font: inherit;
+    box-shadow: 0 24px 60px rgba(20, 48, 107, .28);
+}
+dialog.dlg::backdrop { background: rgba(14, 35, 80, .45); }
+dialog.dlg[open] { animation: dlg-in .14s ease-out; }
+@keyframes dlg-in { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.dlg-title { margin: 0 0 8px; font-size: 17px; color: var(--navy); }
+.dlg-ok     .dlg-title { color: var(--green-dark); }
+.dlg-warn   .dlg-title { color: var(--amber); }
+.dlg-danger .dlg-title { color: var(--red); }
+
+.dlg-msg { margin: 0; line-height: 1.5; white-space: pre-line; }
+/* a filename or id worth reading carefully — and copying */
+.dlg-detail {
+    margin-top: 10px; padding: 9px 11px; border-radius: 9px;
+    background: var(--navy-soft); color: var(--navy);
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    word-break: break-all; user-select: all;
+}
+.dlg-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+@media print { dialog.dlg { display: none !important; } }
+
+/* a dialog that holds a form rather than a message */
+dialog.dlg-wide {
+    max-width: min(760px, calc(100vw - 32px));
+    /* the autocomplete boxes hang out of their fields; the scroll container
+       that suits a long message would clip them off at the dialog edge */
+    overflow: visible;
+}
+.dlg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.dlg-head .dlg-title { margin: 0; }
+/* the errbox is display:none until .show, so it takes no room when quiet */
+dialog.dlg .errbox { margin-top: 14px; }
+
+/* per-row Edit button on the medicine list */
+.items button.edit {
+    flex: none; padding: 6px 11px; font-size: 12.5px; border-radius: 8px;
+    background: var(--navy-soft); color: var(--navy);
+}
+.items button.edit:hover { background: #dfe8fa; }

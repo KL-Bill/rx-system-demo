@@ -115,6 +115,54 @@
         </div>
     </div>
 
+    <!-- ===== edit medicine dialog (same cascade as the Add panel above) ===== -->
+    <dialog id="medEditDlg" class="dlg dlg-wide" aria-labelledby="edTitle">
+        <div class="dlg-head">
+            <h3 class="dlg-title" id="edTitle">Edit medicine</h3>
+            <span id="edStatus" class="mb-status"></span>
+        </div>
+        <div class="mb-row">
+            <div class="search-wrap mb-f2">
+                <label for="e-generic">Generic</label>
+                <input id="e-generic" autocomplete="off" placeholder="Paracetamol">
+                <div class="suggestions" id="esg-generic" style="display:none"></div>
+            </div>
+            <div class="search-wrap mb-f2">
+                <label for="e-brand">Brand</label>
+                <input id="e-brand" autocomplete="off" placeholder="Biogesic">
+                <div class="suggestions" id="esg-brand" style="display:none"></div>
+            </div>
+            <div class="search-wrap">
+                <label for="e-form">Form</label>
+                <input id="e-form" autocomplete="off" placeholder="Tablet">
+                <div class="suggestions" id="esg-form" style="display:none"></div>
+            </div>
+            <div class="search-wrap">
+                <label for="e-strength">Strength</label>
+                <input id="e-strength" autocomplete="off" placeholder="500mg">
+                <div class="suggestions" id="esg-strength" style="display:none"></div>
+            </div>
+            <div class="mb-qty">
+                <label for="e-vol">Vol (mL)</label>
+                <input id="e-vol" type="number" min="0" step="any" placeholder="—">
+            </div>
+            <div class="mb-qty">
+                <label for="e-qty">Qty</label>
+                <input id="e-qty" type="number" min="1" value="1">
+            </div>
+            <div class="mb-sig">
+                <label for="e-sig">Sig (instructions — optional)</label>
+                <input id="e-sig" autocomplete="off" placeholder="e.g. 1 tab TID for pain">
+            </div>
+        </div>
+        <div id="edNote" class="mb-note" style="display:none"></div>
+        <div class="errbox" id="edErr"></div>
+        <div class="dlg-actions">
+            <button class="ghost" id="edCancel" type="button">Cancel</button>
+            <button id="edSave" type="button">Save changes</button>
+        </div>
+    </dialog>
+
     <div id="print-area"></div>
 
     <script src="/js/api.js"></script>
