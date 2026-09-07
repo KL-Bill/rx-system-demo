@@ -172,7 +172,18 @@
         }));
         const res = await api('/api/pharmacy/status/bulk', { body: { drugs, action, authorizerPassword: pw } });
         if (res.ok) { $('bulkModal').classList.remove('show'); load(); }
-        else { $('bErr').textContent = res.data.message || 'Could not update'; $('bErr').classList.add('show'); if (!isStaff) notify(res.data.message || 'Could not update'); }
+        else {
+            // staff read the reason inside the authorize modal they are already
+            // looking at; an admin never opened it, so they get the dialog
+            $('bErr').textContent = res.data.message || 'Could not update';
+            $('bErr').classList.add('show');
+            if (!isStaff) {
+                await showDialog({
+                    kind: 'danger', title: 'Could not update',
+                    message: res.data.message || 'Nothing was changed. Try again in a moment.',
+                });
+            }
+        }
     }
     $('bCancel').onclick = () => $('bulkModal').classList.remove('show');
     $('bConfirm').onclick = () => sendBulk(pendingAction, $('bAuth').value);

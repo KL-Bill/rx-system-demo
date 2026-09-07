@@ -136,7 +136,12 @@
             if (b.dataset.act === 'pw') b.onclick = () => openPwModal(b.dataset.id, b.dataset.name);
             else b.onclick = async () => {
                 const res = await api(`/api/it/users/${b.dataset.id}/active`, { body: { active: b.dataset.to === 'true' } });
-                if (!res.ok) notify(res.data.message || 'Failed');
+                if (!res.ok) {
+                    await showDialog({
+                        kind: 'danger', title: 'Could not update the account',
+                        message: res.data.message || 'The account was left as it was. Try again in a moment.',
+                    });
+                }
                 loadUsers(); loadHealth();
             };
         });

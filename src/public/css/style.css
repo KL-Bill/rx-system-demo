@@ -187,40 +187,6 @@ tr.clickable:hover td { background: #f8fafe; }
 .suggestions .opt.hint { cursor: default; color: var(--muted); font-style: italic; }
 .suggestions .opt.hint:hover { background: none; }
 
-/* ===== toasts =====
-   The in-page stand-in for alert(). See notify() in js/api.js: a native dialog
-   costs the kiosk client its keyboard focus, so this app never opens one. */
-.toasts {
-    position: fixed; right: 18px; bottom: 18px; z-index: 90;
-    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-    max-width: min(420px, calc(100vw - 36px));
-    pointer-events: none;                /* the page underneath stays clickable */
-}
-.toast {
-    pointer-events: auto;
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 11px 12px 11px 14px;
-    border-radius: 12px;
-    background: var(--card); color: var(--ink);
-    border-left: 4px solid var(--muted);
-    box-shadow: 0 10px 30px rgba(20, 48, 107, .18);
-    font-size: 13.5px; line-height: 1.35;
-    animation: toast-in .16s ease-out;
-}
-.toast.err  { background: var(--red-soft);   border-left-color: var(--red);   color: #8c1f1a; }
-.toast.warn { background: var(--amber-soft); border-left-color: var(--amber); color: #8a5200; }
-.toast.ok   { background: var(--green-soft); border-left-color: var(--green); color: var(--green-dark); }
-.toast-msg { white-space: pre-line; }    /* the restore notice is multi-line */
-.toast-x {
-    flex: none; margin-left: auto; padding: 0 2px;
-    background: none; border: 0; box-shadow: none;
-    font-size: 14px; line-height: 1; color: inherit; opacity: .55; cursor: pointer;
-}
-.toast-x:hover { opacity: 1; background: none; }
-.toast.out { opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media print { .toasts { display: none !important; } }
-
 /* ===== modal dialog =====
    Built on the native <dialog>, so the top layer, the inert background, the
    Tab trap, Esc and the focus hand-back are the browser's job, not ours.

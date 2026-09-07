@@ -25,66 +25,22 @@ function drName(name) {
     return /^dr\.?\s/i.test(name) ? name : 'Dr. ' + name;
 }
 
-// ---------- notify(): the in-page replacement for alert() ----------
-// Never call alert()/confirm() from these pages. They open a real OS dialog,
-// and the stations run the kiosk Electron client: when that dialog closes,
-// Windows does not reliably hand keyboard focus back to the page. Everything
-// still paints and the mouse still works, so nothing looks broken — but no
-// keystroke reaches any field. Nurses reported this as "the screen froze";
-// it never froze, it just went deaf. A banner drawn inside the page cannot
-// take focus off the window, so the caret stays where it was.
-//   opts.kind    'err' (default) | 'warn' | 'ok'
-//   opts.focus   id or element to put the caret in — usually the field to fix
-//   opts.timeout ms before it fades; 0 keeps it until dismissed
-//   opts.onClose runs once, after fade or dismissal
-function notify(message, opts = {}) {
-    const { kind = 'err', focus = null, timeout = 6000, onClose = null } = opts;
-
-    let host = document.getElementById('toasts');
-    if (!host) {
-        host = document.createElement('div');
-        host.id = 'toasts';
-        host.className = 'toasts';
-        host.setAttribute('aria-live', 'assertive');
-        document.body.appendChild(host);
-    }
-
-    const el = document.createElement('div');
-    el.className = `toast ${kind}`;
-    el.innerHTML = '<span class="toast-msg"></span><button class="toast-x" type="button" tabindex="-1" aria-label="Dismiss">✕</button>';
-    el.querySelector('.toast-msg').textContent = message;
-
-    let closed = false;
-    function close() {
-        if (closed) return;
-        closed = true;
-        el.classList.add('out');
-        setTimeout(() => { el.remove(); if (onClose) onClose(); }, 200);
-    }
-    // mousedown + preventDefault, not click: clicking a button focuses it, and
-    // the whole point here is to leave the user's focus alone
-    el.querySelector('.toast-x').addEventListener('mousedown', (e) => { e.preventDefault(); close(); });
-
-    host.appendChild(el);
-    if (timeout) setTimeout(close, timeout);
-
-    if (focus) {
-        const f = typeof focus === 'string' ? document.getElementById(focus) : focus;
-        if (f) f.focus();
-    }
-    return close;
-}
-
-// ---------- showDialog(): the in-page modal ----------
-// For the few messages that must be acknowledged before anything else happens.
-// A native <dialog> + showModal(), not a hand-rolled overlay: the browser puts
-// it in the top layer, makes the page behind it inert, traps Tab inside it,
-// closes it on Esc and — the part that matters here — hands focus back to
-// whatever was focused before it opened. None of that is an OS window, so it
-// costs the page nothing the way alert() did (see notify() above).
-// Most messages do NOT belong here. A modal demands a click before the user
-// can carry on typing, which is the interruption alert() was punishing them
-// with; validation nudges and transient errors stay on notify().
+// ---------- showDialog(): every message the pages put in front of a user ----------
+// Never call alert()/confirm()/prompt() from these pages. They open a real OS
+// dialog, and the stations run the kiosk Electron client: when that dialog
+// closes, Windows does not reliably hand keyboard focus back to the page.
+// Everything still paints and the mouse still works, so nothing looks broken —
+// but no keystroke reaches any field. Nurses reported this as "the screen
+// froze"; it never froze, it just went deaf.
+//
+// This is a native <dialog> + showModal(), not a hand-rolled overlay and not an
+// OS window. The browser gives us the top layer, an inert page behind it, a Tab
+// trap, Esc to close and focus handed back to whatever was focused before it
+// opened — none of which costs the page its keyboard.
+//
+// Callers that want the caret somewhere specific afterwards (the field that
+// failed validation, say) await the promise and focus it themselves, since the
+// dialog's own hand-back would otherwise put it on the button that opened it.
 //   opts.title    heading
 //   opts.message  body text; newlines are kept
 //   opts.detail   optional monospace line (a filename, an id), selectable

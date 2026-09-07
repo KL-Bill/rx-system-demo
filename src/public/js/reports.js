@@ -91,7 +91,10 @@
 
     function csvCell(v) { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
     function exportCsv() {
-        if (!rows.length) { notify('Generate a report first.', { kind: 'warn' }); return; }
+        if (!rows.length) {
+            showDialog({ kind: 'warn', title: 'Nothing to export', message: 'Generate a report first, then export it.' });
+            return;
+        }
         const head = ['Medicine', 'Reason', 'Prescriptions', 'Total qty', 'Departments (qty)', 'Doctors (qty)', 'Status'];
         const lines = [head.join(',')];
         rows.forEach((r) => lines.push([

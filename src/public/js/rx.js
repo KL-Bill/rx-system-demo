@@ -252,9 +252,12 @@
         const s = builder.values(); const qty = Number($('f-qty').value) || 1;
         const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
         if (!s.generic || !s.form || !s.strength) {
-            // put the caret in the first box that is actually missing
             const miss = ['generic', 'form', 'strength'].find((f) => !s[f]);
-            notify('Enter at least generic, form, and strength.', { kind: 'warn', focus: `f-${miss}` });
+            await showDialog({
+                kind: 'warn', title: 'Missing details',
+                message: 'Enter at least generic, form, and strength before adding the medicine.',
+            });
+            builder.focus(miss);        // the caret goes to the first box actually missing
             return;
         }
 
@@ -263,7 +266,13 @@
         btn.disabled = false;
         // adding on a failed lookup would silently flag a stocked medicine as
         // not-in-the-Formulary, so refuse instead of guessing
-        if (!ok) { notify('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
+        if (!ok) {
+            await showDialog({
+                kind: 'danger', title: 'Cannot reach the server',
+                message: 'The Formulary could not be checked, so the medicine was not added. Try again in a moment.',
+            });
+            return;
+        }
 
         addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, sig: $('f-sig').value.trim(), isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
         resetBuilder();
@@ -414,7 +423,7 @@
     // ----- print -----
     // window.print() opens a native OS dialog, and Chromium does not reliably
     // hand keyboard focus back to the page when it closes — the same deafness
-    // alert() caused (see notify() in js/api.js). Nothing here is cleared by
+    // alert() caused (see showDialog() in js/api.js). Nothing here is cleared by
     // printing, so after Cancel the station's work was always still on screen;
     // the keyboard had just stopped reaching it, which reads as "cancelling
     // threw my prescription away". So the page takes focus back itself.
@@ -442,7 +451,14 @@
     window.addEventListener('afterprint', restoreFocusAfterPrint);
 
     $('printBtn').onclick = async () => {
-        if (!items.length) { notify('Add at least one medicine first.', { kind: 'warn', focus: 'f-generic' }); return; }
+        if (!items.length) {
+            await showDialog({
+                kind: 'warn', title: 'Nothing to print',
+                message: 'Add at least one medicine to the prescription first.',
+            });
+            builder.focus('generic');
+            return;
+        }
         if (!savedRxId) {
             const payload = {
                 stationId: stationSel.value,
@@ -451,7 +467,13 @@
                 items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock })),
             };
             const res = await api('/api/rx', { body: payload });
-            if (!res.ok) { notify(res.data.message || 'Could not save prescription'); return; }
+            if (!res.ok) {
+                await showDialog({
+                    kind: 'danger', title: 'Could not save the prescription',
+                    message: res.data.message || 'The prescription was not recorded, so nothing was printed. Try again in a moment.',
+                });
+                return;
+            }
             savedRxId = true;
             saveDoctor();
         }
