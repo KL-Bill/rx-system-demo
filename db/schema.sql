@@ -41,7 +41,11 @@ CREATE TABLE strengths (
   volume_ml NUMERIC,
   reg_approx BOOLEAN,
   description TEXT,
-  bizbox_seen_at BIGINT
+  bizbox_seen_at BIGINT,
+  -- soft delete: a duplicate merged away on the RX Formulary page keeps its
+  -- row, pointing at the one kept, so IT can bring it back
+  deleted_at BIGINT,
+  merged_into INTEGER
 );
 
 CREATE INDEX idx_brands_generic ON brands (generic_id);
@@ -65,13 +69,17 @@ CREATE INDEX idx_strengths_description_trim ON strengths (lower(trim(description
 -- role: 'admin' (pharmacy head), 'staff' (pharmacy staff), 'it' (system
 -- administration). Nurses have no login. Deactivated accounts keep their row
 -- (active = false) so audit entries still point at a real user.
+-- is_master: an IT account made at the server console (scripts/create-admin.js).
+-- Only master IT manages accounts; IT accounts made on the IT page are not
+-- master and never see the Accounts tab.
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT true
+  active BOOLEAN NOT NULL DEFAULT true,
+  is_master BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE stations (
@@ -83,7 +91,8 @@ CREATE TABLE stations (
 CREATE TABLE doctors (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  license TEXT
+  license TEXT,
+  deleted_at BIGINT              -- soft delete (IT page); NULL = offered to nurses
 );
 
 -- ---------- prescriptions ----------
@@ -92,15 +101,20 @@ CREATE TABLE doctors (
 -- directly; doctor/patient/address/age/sex/items stay in payload since
 -- they're only ever read back whole, never queried by field.
 
+-- deleted_at/deleted_by: soft delete from the IT page. A deleted prescription
+-- leaves every list, count and report but stays on disk; IT can restore it.
 CREATE TABLE prescriptions (
   id TEXT PRIMARY KEY,
   station_id TEXT REFERENCES stations(id),
   department TEXT,
   created_at BIGINT NOT NULL,
-  payload JSONB NOT NULL
+  payload JSONB NOT NULL,
+  deleted_at BIGINT,
+  deleted_by TEXT
 );
 
 CREATE INDEX idx_prescriptions_created_at ON prescriptions (created_at);
+CREATE INDEX idx_prescriptions_live ON prescriptions (created_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_prescriptions_station ON prescriptions (station_id);
 CREATE INDEX idx_prescriptions_department ON prescriptions (department);
 

@@ -40,7 +40,7 @@ const LOAD_SQL = `
     FROM generics g
     LEFT JOIN brands b ON b.generic_id = g.id
     LEFT JOIN forms f ON f.brand_id = b.id
-    LEFT JOIN strengths s ON s.form_id = f.id`;
+    LEFT JOIN strengths s ON s.form_id = f.id AND s.deleted_at IS NULL`;
 
 const FIELD_KEY = { generic: 'g', brand: 'b', form: 'f', strength: 's' };
 const PARENTS = {

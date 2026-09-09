@@ -11,13 +11,13 @@ const toNum = (x) => (x == null ? null : Number(x));
 // roles: 'admin' (pharmacy head), 'staff' (pharmacy staff), 'it'
 const getUserByUsername = async (username) => {
     const { rows } = await pool.query(
-        'SELECT id, name, username, password_hash AS password, role, active FROM users WHERE username = $1',
+        'SELECT id, name, username, password_hash AS password, role, active, is_master AS master FROM users WHERE username = $1',
         [username]);
     return rows[0] || null;
 };
 const getUserById = async (id) => {
     const { rows } = await pool.query(
-        'SELECT id, name, username, password_hash AS password, role, active FROM users WHERE id = $1', [id]);
+        'SELECT id, name, username, password_hash AS password, role, active, is_master AS master FROM users WHERE id = $1', [id]);
     return rows[0] || null;
 };
 const getAdmins = async () => {
@@ -28,13 +28,13 @@ const getAdmins = async () => {
 };
 const listUsers = async () => {
     const { rows } = await pool.query(
-        'SELECT id, name, username, role, active FROM users ORDER BY role, username');
+        'SELECT id, name, username, role, active, is_master AS master FROM users ORDER BY role, username');
     return rows;
 };
-const insertUser = async ({ id, name, username, passwordHash, role }) => {
+const insertUser = async ({ id, name, username, passwordHash, role, master = false }) => {
     await pool.query(
-        'INSERT INTO users (id, name, username, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
-        [id, name, username, passwordHash, role]);
+        'INSERT INTO users (id, name, username, password_hash, role, is_master) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, name, username, passwordHash, role, !!master]);
 };
 const updateUserPassword = async (id, passwordHash) => {
     await pool.query('UPDATE users SET password_hash = $2 WHERE id = $1', [id, passwordHash]);
@@ -53,8 +53,62 @@ const getStation = async (id) => {
     return rows[0] || null;
 };
 const getDoctors = async () => {
-    const { rows } = await pool.query('SELECT id, name, license FROM doctors');
+    const { rows } = await pool.query('SELECT id, name, license FROM doctors WHERE deleted_at IS NULL ORDER BY lower(name)');
     return rows;
+};
+// IT's view: removed ones too, flagged
+const getDoctorsAll = async () => {
+    const { rows } = await pool.query('SELECT id, name, license, deleted_at AS "deletedAt" FROM doctors ORDER BY (deleted_at IS NOT NULL), lower(name)');
+    return rows.map((r) => ({ ...r, deletedAt: toNum(r.deletedAt) }));
+};
+
+// ---- master data maintenance (IT console) ----
+// Prescriptions carry the doctor by NAME (payload.doctor.name) and the station
+// by id plus a copied department column. Renaming either therefore offers to
+// rewrite the copies on past prescriptions, so reports keep grouping together.
+const getDoctor = async (id) => {
+    const { rows } = await pool.query('SELECT id, name, license, deleted_at AS "deletedAt" FROM doctors WHERE id = $1', [id]);
+    return rows[0] || null;
+};
+const insertDoctor = async ({ name, license }) => {
+    const id = newId('doc');
+    await pool.query('INSERT INTO doctors (id, name, license) VALUES ($1, $2, $3)', [id, name, license || null]);
+    return { id, name, license: license || null };
+};
+const updateDoctor = async (id, { name, license }) => {
+    const { rows } = await pool.query('UPDATE doctors SET name = $2, license = $3 WHERE id = $1 RETURNING id, name, license', [id, name, license || null]);
+    return rows[0] || null;
+};
+const deleteDoctor = async (id) => (await pool.query('UPDATE doctors SET deleted_at = $2 WHERE id = $1 AND deleted_at IS NULL', [id, Date.now()])).rowCount;
+const restoreDoctor = async (id) => (await pool.query('UPDATE doctors SET deleted_at = NULL WHERE id = $1', [id])).rowCount;
+const countPrescriptionsByDoctorName = async (name) => {
+    const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM prescriptions WHERE deleted_at IS NULL AND lower(trim(payload -> 'doctor' ->> 'name')) = lower(trim($1))`, [name]);
+    return rows[0].n;
+};
+const renamePrescriptionDoctor = async (oldName, newName) => {
+    const { rowCount } = await pool.query(`
+        UPDATE prescriptions SET payload = jsonb_set(payload, '{doctor,name}', to_jsonb($2::text))
+         WHERE lower(trim(payload -> 'doctor' ->> 'name')) = lower(trim($1))`, [oldName, newName]);
+    return rowCount;
+};
+
+const insertStation = async ({ name, department }) => {
+    const id = newId('st');
+    await pool.query('INSERT INTO stations (id, name, department) VALUES ($1, $2, $3)', [id, name, department]);
+    return { id, name, department };
+};
+const updateStation = async (id, { name, department }) => {
+    const { rows } = await pool.query('UPDATE stations SET name = $2, department = $3 WHERE id = $1 RETURNING id, name, department', [id, name, department]);
+    return rows[0] || null;
+};
+const countPrescriptionsByStation = async (id) => {
+    const { rows } = await pool.query('SELECT count(*)::int AS n FROM prescriptions WHERE station_id = $1 AND deleted_at IS NULL', [id]);
+    return rows[0].n;
+};
+const renameStationDepartment = async (id, department) => {
+    const { rowCount } = await pool.query('UPDATE prescriptions SET department = $2 WHERE station_id = $1', [id, department]);
+    return rowCount;
 };
 
 // ---------- catalog (generics -> brands -> forms -> strengths) ----------
@@ -75,9 +129,10 @@ const COMBO_COLUMNS = `
     g.generic_name AS generic, b.brand_name AS brand, f.form_name AS form, s.label AS strength,
     s.description AS description,
     s.registration_number AS "registrationNumber", s.volume_ml AS "volumeMl",
-    s.ihf AS "inFormulary", g.in_pnf AS "inPnf"`;
+    s.ihf AS "inFormulary", g.in_pnf AS "inPnf",
+    s.deleted_at AS "deletedAt", s.merged_into AS "mergedInto"`;
 
-const mapCombo = (r) => ({ ...r, volumeMl: toNum(r.volumeMl) });
+const mapCombo = (r) => ({ ...r, volumeMl: toNum(r.volumeMl), deletedAt: toNum(r.deletedAt) });
 
 const findProduct = async ({ generic, brand = '', form = '', strength = '' }) => {
     const { rows } = await pool.query(`
@@ -90,6 +145,7 @@ const findProduct = async ({ generic, brand = '', form = '', strength = '' }) =>
           AND lower(trim(b.brand_name)) = lower(trim($2))
           AND lower(trim(f.form_name)) = lower(trim($3))
           AND lower(trim(s.label)) = lower(trim($4))
+          AND s.deleted_at IS NULL
         LIMIT 1
     `, [generic, brand, form, strength]);
     return rows[0] ? mapCombo(rows[0]) : null;
@@ -107,6 +163,7 @@ const findProductByDescription = async ({ generic, description }) => {
         JOIN generics g ON g.id = b.generic_id
         WHERE lower(trim(g.generic_name)) = lower(trim($1))
           AND lower(trim(s.description)) = lower(trim($2))
+          AND s.deleted_at IS NULL
         LIMIT 1
     `, [generic, description]);
     return rows[0] ? mapCombo(rows[0]) : null;
@@ -118,7 +175,7 @@ const getFormNames = async () => {
     if (cached) return cached;
     const { rows } = await pool.query(`
         SELECT min(f.form_name) AS f FROM forms f
-        WHERE f.form_name <> '' AND EXISTS (SELECT 1 FROM strengths s WHERE s.form_id = f.id AND s.ihf)
+        WHERE f.form_name <> '' AND EXISTS (SELECT 1 FROM strengths s WHERE s.form_id = f.id AND s.ihf AND s.deleted_at IS NULL)
         GROUP BY lower(trim(f.form_name)) ORDER BY lower(min(f.form_name))`);
     return rows.map((r) => r.f);
 };
@@ -164,7 +221,7 @@ const SUGGEST_CHAIN = [
     'generics g',
     'LEFT JOIN brands b ON b.generic_id = g.id',
     'LEFT JOIN forms f ON f.brand_id = b.id',
-    'LEFT JOIN strengths s ON s.form_id = f.id',
+    'LEFT JOIN strengths s ON s.form_id = f.id AND s.deleted_at IS NULL',
 ];
 const SUGGEST_LEVEL = { generic: 0, brand: 1, form: 2, strength: 3 };
 
@@ -250,7 +307,7 @@ const suggestCombo = async (sel = {}) => {
     const gen = norm(sel.generic);
     if (!gen && words.join('').length < SUGGEST_MIN_Q) return [];
     const params = [];
-    const where = ["s.description <> ''"];
+    const where = ["s.description <> ''", 's.deleted_at IS NULL'];
     if (gen) { params.push(gen); where.push(`lower(trim(g.generic_name)) = $${params.length}`); }
     for (const w of words) { params.push(w); where.push(`strpos(lower(s.description), $${params.length}) > 0`); }
     const { rows } = await pool.query(`
@@ -318,9 +375,14 @@ const addToCatalog = async ({ genericName, brandName, formName, strength, descri
         }
 
         r = await client.query(
-            'SELECT id FROM strengths WHERE form_id = $1 AND lower(trim(label)) = lower(trim($2))',
+            'SELECT id, deleted_at FROM strengths WHERE form_id = $1 AND lower(trim(label)) = lower(trim($2)) ORDER BY (deleted_at IS NOT NULL) LIMIT 1',
             [formId, strength || '']);
         const strengthId = r.rows[0] && r.rows[0].id;
+        // a row removed on the RX Formulary page that comes back through Bizbox
+        // or a manual add is the same row, restored — not a second copy
+        if (strengthId && r.rows[0].deleted_at != null) {
+            await client.query('UPDATE strengths SET deleted_at = NULL, merged_into = NULL WHERE id = $1', [strengthId]);
+        }
         if (!strengthId) {
             r = await client.query(`
                 INSERT INTO strengths (form_id, label, ihf, description, registration_number, volume_ml, bizbox_seen_at)
@@ -371,7 +433,7 @@ const addPrescription = async (record) => {
 };
 
 const getPrescriptions = async () => {
-    const { rows } = await pool.query('SELECT id, station_id, department, created_at, payload FROM prescriptions');
+    const { rows } = await pool.query('SELECT id, station_id, department, created_at, payload FROM prescriptions WHERE deleted_at IS NULL');
     return rows.map((r) => ({
         id: r.id, stationId: r.station_id, department: r.department,
         createdAt: toNum(r.created_at), ...r.payload,
@@ -386,8 +448,9 @@ const getPrescriptions = async () => {
 // wrong or test entries; it has no reason to read who they were for, and the
 // system log already keeps patient details out for the same reason. Date,
 // station, doctor and medicine count are enough to identify a row.
-const listPrescriptionsPage = async ({ from = null, to = null, limit = 50, offset = 0 }) => {
-    const where = [];
+// deleted: 'no' (default, the live rows) | 'only' (the soft-deleted ones, for restoring)
+const listPrescriptionsPage = async ({ from = null, to = null, limit = 50, offset = 0, deleted = 'no' }) => {
+    const where = [deleted === 'only' ? 'p.deleted_at IS NOT NULL' : 'p.deleted_at IS NULL'];
     const params = [];
     if (from != null) { params.push(from); where.push(`p.created_at >= $${params.length}`); }
     if (to != null) { params.push(to); where.push(`p.created_at <= $${params.length}`); }
@@ -400,7 +463,8 @@ const listPrescriptionsPage = async ({ from = null, to = null, limit = 50, offse
     const { rows } = await pool.query(`
         SELECT p.id, p.department, p.created_at, s.name AS station,
                p.payload -> 'doctor' ->> 'name' AS doctor,
-               COALESCE(jsonb_array_length(p.payload -> 'items'), 0) AS meds
+               COALESCE(jsonb_array_length(p.payload -> 'items'), 0) AS meds,
+               p.deleted_at, p.deleted_by
         FROM prescriptions p
         LEFT JOIN stations s ON s.id = p.station_id
         ${clause}
@@ -413,29 +477,38 @@ const listPrescriptionsPage = async ({ from = null, to = null, limit = 50, offse
         prescriptions: rows.map((r) => ({
             id: r.id, createdAt: toNum(r.created_at), station: r.station,
             department: r.department, doctor: r.doctor, meds: toNum(r.meds),
+            deletedAt: toNum(r.deleted_at), deletedBy: r.deleted_by,
         })),
     };
 };
 
-// Hard delete. Prescriptions are the source for demand counts and the pharmacy
+// Soft delete. Prescriptions are the source for demand counts and the pharmacy
 // dashboard, so removing rows changes those numbers — that is the point when
-// clearing test data, but it is not reversible without a backup restore.
-const deletePrescriptionsByIds = async (ids) => {
+// clearing test data. The rows stay, marked, and IT can restore them.
+const deletePrescriptionsByIds = async (ids, by) => {
     if (!ids.length) return 0;
-    const { rowCount } = await pool.query('DELETE FROM prescriptions WHERE id = ANY($1)', [ids]);
+    const { rowCount } = await pool.query(
+        'UPDATE prescriptions SET deleted_at = $2, deleted_by = $3 WHERE id = ANY($1) AND deleted_at IS NULL', [ids, Date.now(), by || null]);
     return rowCount;
 };
 
-const deletePrescriptionsByRange = async ({ from = null, to = null }) => {
-    const where = [];
-    const params = [];
+const deletePrescriptionsByRange = async ({ from = null, to = null }, by) => {
+    const where = ['deleted_at IS NULL'];
+    const params = [Date.now(), by || null];
     if (from != null) { params.push(from); where.push(`created_at >= $${params.length}`); }
     if (to != null) { params.push(to); where.push(`created_at <= $${params.length}`); }
-    // no clause at all would mean "delete everything"; the model refuses that
+    // no range at all would mean "delete everything"; the model refuses that
     // before it reaches here, but keep the guard local too
-    if (!where.length) throw new Error('refusing to delete every prescription');
+    if (where.length === 1) throw new Error('refusing to delete every prescription');
     const { rowCount } = await pool.query(
-        `DELETE FROM prescriptions WHERE ${where.join(' AND ')}`, params);
+        `UPDATE prescriptions SET deleted_at = $1, deleted_by = $2 WHERE ${where.join(' AND ')}`, params);
+    return rowCount;
+};
+
+const restorePrescriptionsByIds = async (ids) => {
+    if (!ids.length) return 0;
+    const { rowCount } = await pool.query(
+        'UPDATE prescriptions SET deleted_at = NULL, deleted_by = NULL WHERE id = ANY($1) AND deleted_at IS NOT NULL', [ids]);
     return rowCount;
 };
 
@@ -492,11 +565,126 @@ const findSimilarProducts = async ({ generic, brand = '' }) => {
         JOIN brands b ON b.id = f.brand_id
         JOIN generics g ON g.id = b.generic_id
         WHERE lower(trim(g.generic_name)) = lower(trim($1))
+          AND s.deleted_at IS NULL
           AND ($2 = '' OR strpos(lower(b.brand_name), lower(trim($2))) > 0 OR b.brand_name = '')
         ORDER BY s.ihf DESC, lower(b.brand_name), lower(f.form_name), lower(s.label)
         LIMIT 40
     `, [generic, brand]);
     return rows.map(mapCombo);
+};
+
+// ---------- RX Formulary browsing / editing ----------
+// The app's own medicine list, as the pharmacy head and IT see it on the
+// Medicines page: search, fix a row, merge a duplicate into the row to keep.
+// bizbox: 'all' | 'yes' | 'no' | 'removed' (the soft-deleted rows, for restoring)
+const searchCatalog = async ({ q = '', bizbox = 'all', limit = 100, offset = 0 } = {}) => {
+    const params = [];
+    const where = [bizbox === 'removed' ? 's.deleted_at IS NOT NULL' : 's.deleted_at IS NULL'];
+    for (const w of norm(q).split(/\s+/).filter(Boolean)) {
+        params.push(w);
+        where.push(`strpos(lower(concat_ws(' ', g.generic_name, b.brand_name, f.form_name, s.label, s.description)), $${params.length}) > 0`);
+    }
+    if (bizbox === 'yes') where.push('s.ihf');
+    if (bizbox === 'no') where.push('NOT s.ihf');
+    const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const from = `FROM strengths s JOIN forms f ON f.id = s.form_id JOIN brands b ON b.id = f.brand_id JOIN generics g ON g.id = b.generic_id ${cond}`;
+    const total = (await pool.query(`SELECT count(*)::int AS n ${from}`, params)).rows[0].n;
+    params.push(Math.min(Number(limit) || 100, 500), Number(offset) || 0);
+    const { rows } = await pool.query(`
+        SELECT s.id, ${COMBO_COLUMNS}, s.bizbox_seen_at AS "seenAt"
+        ${from}
+        ORDER BY s.ihf DESC, lower(g.generic_name), lower(b.brand_name), lower(s.description)
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+    return { total, rows: rows.map((r) => ({ ...mapCombo(r), seenAt: toNum(r.seenAt) })) };
+};
+
+const getCatalogRow = async (id) => {
+    const { rows } = await pool.query(`
+        SELECT s.id, ${COMBO_COLUMNS}
+        FROM strengths s JOIN forms f ON f.id = s.form_id JOIN brands b ON b.id = f.brand_id JOIN generics g ON g.id = b.generic_id
+        WHERE s.id = $1`, [id]);
+    return rows[0] ? mapCombo(rows[0]) : null;
+};
+
+// find-or-create the generic -> brand -> form path a row should hang from
+const pathFor = async (client, { genericName, brandName, formName }) => {
+    let r = await client.query('SELECT id FROM generics WHERE lower(trim(generic_name)) = lower(trim($1))', [genericName]);
+    let genericId = r.rows[0] && r.rows[0].id;
+    if (!genericId) { r = await client.query('INSERT INTO generics (generic_name) VALUES ($1) RETURNING id', [genericName]); genericId = r.rows[0].id; }
+    r = await client.query('SELECT id FROM brands WHERE generic_id = $1 AND lower(trim(brand_name)) = lower(trim($2))', [genericId, brandName || '']);
+    let brandId = r.rows[0] && r.rows[0].id;
+    if (!brandId) { r = await client.query('INSERT INTO brands (generic_id, brand_name) VALUES ($1, $2) RETURNING id', [genericId, brandName || '']); brandId = r.rows[0].id; }
+    r = await client.query('SELECT id FROM forms WHERE brand_id = $1 AND lower(trim(form_name)) = lower(trim($2))', [brandId, formName || '']);
+    let formId = r.rows[0] && r.rows[0].id;
+    if (!formId) { r = await client.query('INSERT INTO forms (brand_id, form_name) VALUES ($1, $2) RETURNING id', [brandId, formName || '']); formId = r.rows[0].id; }
+    return formId;
+};
+// forms/brands/generics that no longer hold anything, after a move or a merge.
+// PNDF generics stay even when empty: they are the master list.
+const pruneEmpty = async (client) => {
+    await client.query('DELETE FROM forms f WHERE NOT EXISTS (SELECT 1 FROM strengths s WHERE s.form_id = f.id)');
+    await client.query('DELETE FROM brands b WHERE NOT EXISTS (SELECT 1 FROM forms f WHERE f.brand_id = b.id)');
+    await client.query('DELETE FROM generics g WHERE NOT EXISTS (SELECT 1 FROM brands b WHERE b.generic_id = g.id) AND NOT g.in_pnf');
+};
+
+// Rewrites one row. Changing generic/brand/form moves it under the right
+// path. If that path already holds the same strength on another row, the
+// caller gets a 409 carrying that row — the UI offers to merge instead.
+const updateCatalogRow = async (id, { genericName, brandName, formName, strength, description, registrationNumber, volumeMl, ihf }) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const formId = await pathFor(client, { genericName, brandName, formName });
+        const dup = await client.query(
+            'SELECT id FROM strengths WHERE form_id = $1 AND lower(trim(label)) = lower(trim($2)) AND id <> $3 AND deleted_at IS NULL', [formId, strength || '', id]);
+        if (dup.rows[0]) {
+            await client.query('ROLLBACK');
+            return { conflict: dup.rows[0].id };
+        }
+        const desc = String(description || '').replace(/\s+/g, ' ').trim()
+            || [brandName, strength, formName].map((x) => String(x || '').trim()).filter(Boolean).join(' ');
+        await client.query(`
+            UPDATE strengths SET form_id = $2, label = $3, description = $4, registration_number = $5, volume_ml = $6, ihf = $7
+            WHERE id = $1`, [id, formId, strength || '', desc, registrationNumber || null, volumeMl ?? null, !!ihf]);
+        await pruneEmpty(client);
+        await client.query('COMMIT');
+        catalogCache.invalidate();
+        return { conflict: null };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally { client.release(); }
+};
+
+// the duplicate is marked removed (pointing at the row kept), the kept row
+// inherits "in Bizbox" if either had it. IT can restore the duplicate.
+const mergeCatalogRows = async (fromId, intoId) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`
+            UPDATE strengths t SET
+                ihf = t.ihf OR d.ihf,
+                registration_number = COALESCE(t.registration_number, d.registration_number),
+                volume_ml = COALESCE(t.volume_ml, d.volume_ml),
+                bizbox_seen_at = GREATEST(t.bizbox_seen_at, d.bizbox_seen_at)
+            FROM strengths d WHERE t.id = $2 AND d.id = $1`, [fromId, intoId]);
+        const del = await client.query('UPDATE strengths SET deleted_at = $2, merged_into = $3 WHERE id = $1', [fromId, Date.now(), intoId]);
+        await pruneEmpty(client);
+        await client.query('COMMIT');
+        catalogCache.invalidate();
+        return del.rowCount;
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally { client.release(); }
+};
+
+const restoreCatalogRow = async (id) => {
+    const { rowCount } = await pool.query('UPDATE strengths SET deleted_at = NULL, merged_into = NULL WHERE id = $1', [id]);
+    if (rowCount) catalogCache.invalidate();
+    return rowCount;
 };
 
 // ---------- Bizbox imports (the job row IS the progress bar) ----------
@@ -563,7 +751,7 @@ const productsNotSeenSince = async (since, limit = 2000) => {
         JOIN forms f ON f.id = s.form_id
         JOIN brands b ON b.id = f.brand_id
         JOIN generics g ON g.id = b.generic_id
-        WHERE s.ihf AND (s.bizbox_seen_at IS NULL OR s.bizbox_seen_at < $1)
+        WHERE s.ihf AND s.deleted_at IS NULL AND (s.bizbox_seen_at IS NULL OR s.bizbox_seen_at < $1)
         ORDER BY lower(g.generic_name), lower(s.description)
         LIMIT $2
     `, [since, limit]);
@@ -667,11 +855,14 @@ module.exports = {
     addSystemLog, getSystemLogs, countSystemLogs,
     getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
+    getDoctor, getDoctorsAll, insertDoctor, updateDoctor, deleteDoctor, restoreDoctor, countPrescriptionsByDoctorName, renamePrescriptionDoctor,
+    insertStation, updateStation, countPrescriptionsByStation, renameStationDepartment,
     strengthLabel, getGenerics, suggestOptions, findProduct, findProductByDescription, getFormNames, addToCatalog,
     addPrescription, getPrescriptions,
-    listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange,
+    listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
     addRemark, getRemarks, getAllRemarks, findSimilarProducts,
+    searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
     createImport, getImport, updateImport, listImports,
     exclusionKey, getExclusions, addExclusion, removeExclusion, productsNotSeenSince,
     addAudit, getAudit,

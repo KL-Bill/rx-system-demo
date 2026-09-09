@@ -5,7 +5,7 @@ const SECRET = process.env.SECRET_KEY || 'demo-secret-key';
 
 // 24h session — pharmacy logs in once per day
 const signAccess = (user) => {
-    const payload = { id: user.id, name: user.name, role: user.role };
+    const payload = { id: user.id, name: user.name, role: user.role, master: !!user.master };
     return jwt.sign(payload, SECRET, { expiresIn: '24h' });
 };
 
@@ -39,10 +39,20 @@ const requireRole = (...roles) => (req, res, next) => {
     next();
 };
 
+// master IT only: accounts are managed by IT made at the server console,
+// never by an IT account made on the web page (use after authenticateApi)
+const requireMaster = (req, res, next) => {
+    if (!req.user || req.user.role !== 'it' || !req.user.master) {
+        return res.status(403).json({ success: false, message: 'Only a master IT account (created at the server console) can manage accounts' });
+    }
+    next();
+};
+
 module.exports = {
     signAccess,
     verifyToken,
     getToken,
     authenticateApi,
     requireRole,
+    requireMaster,
 };

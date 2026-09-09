@@ -6,7 +6,7 @@ const authenticate = async (username, password) => {
     if (!user || user.active === false) return null;
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return null;
-    return { id: user.id, name: user.name, role: user.role };
+    return { id: user.id, name: user.name, role: user.role, master: !!user.master };
 };
 
 // returns the authorizing admin if the password matches ANY active admin

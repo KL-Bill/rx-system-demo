@@ -31,6 +31,7 @@
                 <button class="tab" data-tab="prescriptions" type="button">Prescriptions</button>
                 <button class="tab" data-tab="backups" type="button">Backups</button>
                 <button class="tab" data-tab="medicines" type="button">Medicines</button>
+                <button class="tab" data-tab="master" type="button">Doctors &amp; Stations</button>
             </div>
         </div>
 
@@ -102,10 +103,11 @@
         <div class="content pane" id="pane-prescriptions" style="display:none">
             <p class="sub">
                 Remove prescriptions that are wrong, or left over from testing. Patient details aren't shown here —
-                use the date, station and doctor to identify a row. <b>Deleting is permanent</b> and changes the
-                pharmacy dashboard and demand counts; only a backup restore brings them back.
+                use the date, station and doctor to identify a row. A deleted prescription leaves the pharmacy
+                dashboard, the reports and the demand counts at once, but it is kept: switch to <b>Deleted</b> to restore it.
             </p>
             <div class="filters-row">
+                <select id="rxView" style="max-width:150px"><option value="live">Active</option><option value="deleted">Deleted</option></select>
                 <input type="date" id="rxFrom" style="max-width:160px">
                 <input type="date" id="rxTo" style="max-width:160px">
                 <button class="ghost sm" id="rxRefresh" type="button">Apply</button>
@@ -113,13 +115,14 @@
                 <span style="flex:1"></span>
                 <button class="danger sm" id="rxDelSel" type="button" disabled>Delete selected</button>
                 <button class="danger sm" id="rxDelRange" type="button" disabled>Delete all in range</button>
+                <button class="green sm" id="rxRestoreSel" type="button" disabled style="display:none">Restore selected</button>
             </div>
             <div class="result-count" id="rxCount"></div>
             <div class="tbl-wrap">
                 <table class="dense">
                     <thead><tr>
                         <th style="width:34px"><input type="checkbox" id="rxAll" title="Select all on this page"></th>
-                        <th>When</th><th>Station</th><th>Department</th><th>Doctor</th><th>Medicines</th>
+                        <th>When</th><th>Station</th><th>Department</th><th>Doctor</th><th>Medicines</th><th id="rxDelHead" style="display:none">Deleted</th>
                     </tr></thead>
                     <tbody id="rxTbl"></tbody>
                 </table>
@@ -160,12 +163,51 @@
         <div class="content pane" id="pane-medicines" style="display:none">
             <div id="importRoot"></div>
         </div>
+
+        <!-- ===== Doctors & Stations (the lists the nurse page offers) ===== -->
+        <div class="content pane" id="pane-master" style="display:none">
+            <div class="master-grid">
+                <div class="card imp-card">
+                    <div class="imp-h">
+                        <div><h2>Doctors</h2><p class="sub" style="margin:0">The names the nurse picks from. Renaming can also fix past prescriptions written under the old name.</p></div>
+                        <button class="sm" id="newDoctorBtn" type="button">+ Add doctor</button>
+                    </div>
+                    <div class="filters-row"><input id="docQ" placeholder="Search doctors…" style="max-width:320px"><label class="mb-check"><input type="checkbox" id="docShowRemoved"> Show removed</label></div>
+                    <div class="tbl-wrap"><table class="dense"><thead><tr><th>Name</th><th>License (PRC)</th><th># RX</th><th></th></tr></thead><tbody id="docTbl"></tbody></table></div>
+                    <div class="empty" id="docEmpty" style="display:none">No doctors match.</div>
+                </div>
+                <div class="card imp-card">
+                    <div class="imp-h">
+                        <div><h2>Stations</h2><p class="sub" style="margin:0">Where prescriptions are written. A station's department is what the reports group by.</p></div>
+                        <button class="sm" id="newStationBtn" type="button">+ Add station</button>
+                    </div>
+                    <div class="tbl-wrap"><table class="dense"><thead><tr><th>Station</th><th>Department</th><th>Kiosk link</th><th># RX</th><th></th></tr></thead><tbody id="stTbl"></tbody></table></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== doctor / station modal (one form, two uses) ===== -->
+    <div class="modal-bg" id="masterModalBg">
+        <div class="modal" style="max-width:460px">
+            <h3 id="mmTitle">Edit</h3>
+            <label for="mmA" id="mmALabel">Name</label>
+            <input id="mmA" autocomplete="off">
+            <label for="mmB" id="mmBLabel">License</label>
+            <input id="mmB" autocomplete="off">
+            <label class="mb-check" id="mmFixWrap" style="margin-top:12px"><input type="checkbox" id="mmFix" checked> <span id="mmFixText">Also update past prescriptions written under the old name</span></label>
+            <div class="err" id="mmErr"></div>
+            <div class="actions">
+                <button class="ghost" data-close type="button">Cancel</button>
+                <button id="mmSave" type="button">Save</button>
+            </div>
+        </div>
     </div>
 
     <!-- ===== new account modal ===== -->
     <div class="modal-bg" id="userModalBg">
         <div class="modal">
-            <h3>New pharmacy account</h3>
+            <h3>New account</h3>
             <p class="sub">The user should change this password after their first login.</p>
             <label for="uName">Full name</label>
             <input id="uName" placeholder="e.g. Maria Santos">
@@ -177,6 +219,7 @@
             <select id="uRole">
                 <option value="staff">Staff (pharmacy staff)</option>
                 <option value="admin">Admin (pharmacy head)</option>
+                <option value="it">IT (this console, without account management)</option>
             </select>
             <div class="err" id="userErr"></div>
             <div class="actions">
@@ -213,9 +256,9 @@
         <div class="modal">
             <h3>Delete prescriptions?</h3>
             <div class="dangerbox">
-                <b id="rxDelWhat">This permanently deletes prescriptions.</b>
-                There is no safety backup for this — unlike a restore, it cannot be undone from the IT page.
-                Demand counts and the pharmacy dashboard will change.
+                <b id="rxDelWhat">This deletes prescriptions.</b>
+                They disappear from the pharmacy dashboard, the reports and the demand counts straight away.
+                They are kept on the server and can be brought back from the <b>Deleted</b> view on this tab.
             </div>
             <label for="rxDelConfirm">Type the number of prescriptions to confirm</label>
             <div class="mono muted" id="rxDelCount" style="margin-bottom:6px"></div>
@@ -225,7 +268,7 @@
             <div class="err" id="rxDelErr"></div>
             <div class="actions">
                 <button class="ghost" data-close type="button">Cancel</button>
-                <button class="danger" id="rxDelBtn" type="button">Delete permanently</button>
+                <button class="danger" id="rxDelBtn" type="button">Delete</button>
             </div>
         </div>
     </div>
@@ -247,7 +290,10 @@
 
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
+    <script src="/js/split.js"></script>
+    <script src="/js/medwidget.js"></script>
     <script src="/js/bizbox-import.js"></script>
+    <script src="/js/formulary.js"></script>
     <script src="/js/it.js"></script>
 </body>
 </html>

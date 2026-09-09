@@ -62,7 +62,12 @@
         mount: $('filterbar'), storageKey: 'rx_review_filters', onChange: () => { selected.clear(); render(); },
         // the reason this system exists: which BRANDS are in demand that Bizbox
         // lacks. Unbranded requests are one click away from disappearing.
-        quick: [{ label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } }],
+        quick: [
+            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } },
+            { label: 'No remarks', filter: { key: 'remark', op: 'empty' } },
+            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' } },
+            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' } },
+        ],
         fields: [
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [
                 { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'Prescribed but In Bizbox' }] },
@@ -457,61 +462,8 @@
     };
     rvDlg.addEventListener('close', () => rvWidget.hideBoxes());
 
-    // ---------- Add Medicine (admin) ----------
-    const amDlg = $('addMedDlg');
-    $('amWidget').innerHTML = MedWidget.html('a-', 'asg-', { vol: true });
-    const amWidget = MedWidget.create({ p: 'a-', sg: 'asg-', statusId: 'amStatus', noteId: 'amNote', splitNoteId: 'a-splitNote', confirmBizbox: false });
-    const amError = (msg) => { $('amErr').textContent = msg; $('amErr').classList.add('show'); };
-
-    if (isAdmin) {
-        $('addMedBtn').style.display = '';
-        $('addMedBtn').onclick = () => {
-            amWidget.reset(); $('a-reg').value = ''; $('amErr').classList.remove('show'); $('amSimilar').innerHTML = '';
-            amDlg.showModal();
-            amWidget.focus('generic');
-        };
-        // the "also under this generic" list follows the generic and brand as they are typed
-        let simT = null;
-        ['a-generic', 'a-brand', 'a-combo'].forEach((id) => {
-            $(id).addEventListener('input', () => {
-                clearTimeout(simT);
-                simT = setTimeout(() => {
-                    const s = amWidget.values();
-                    if (s.generic.length >= 2) loadSimilar($('amSimilar'), amWidget, s.generic, s.picked ? '' : s.brand);
-                }, 400);
-            });
-        });
-    }
-    $('amCancel').onclick = () => amDlg.close();
-    amDlg.addEventListener('close', () => amWidget.hideBoxes());
-    $('amSave').onclick = async () => {
-        $('amErr').classList.remove('show');
-        const s = amWidget.values();
-        if (!s.generic) { amError('Enter the generic name.'); amWidget.focus('generic'); return; }
-        if (!s.picked && !s.form && !s.strength) { amError('Pick the product from the list, or fill in at least the form or the strength.'); amWidget.focus(amWidget.mode() === 'search' ? 'combo' : 'form'); return; }
-        const body = { generic: s.generic, brand: s.brand, form: s.form, strength: s.strength, description: s.description, volumeMl: s.volumeMl, registrationNumber: $('a-reg').value.trim() };
-        const btn = $('amSave'); btn.disabled = true;
-        let res = await api('/api/pharmacy/catalog', { body });
-        if (res.ok && res.data.needsConfirm) {
-            const m = res.data.matches;
-            const lines = m.map((x) => `• ${x.label} — ${x.prescriptions} RX, ${x.reason === 'not_in_formulary' ? 'Not in Bizbox' : 'Out of stock'}, ${x.status.replace(/_/g, ' ')}`).join('\n');
-            const go = await showDialog({
-                kind: 'warn', title: 'This medicine is being tracked in review',
-                message: `The same medicine is open in Pharmacy Review:\n${lines}\n\nAdding it to Bizbox will mark the Not-in-Bizbox row${m.length > 1 ? 's' : ''} as Added to Bizbox and resolve ${m.length > 1 ? 'them' : 'it'}. Continue?`,
-                actions: [{ label: 'Yes, add and resolve', value: true, variant: 'primary' }, { label: 'Cancel', value: false, variant: 'ghost', cancel: true }],
-            });
-            if (!go) { btn.disabled = false; return; }
-            res = await api('/api/pharmacy/catalog', { body: { ...body, confirm: true } });
-        }
-        btn.disabled = false;
-        if (!res.ok) { amError(res.data.message || 'Could not add the medicine'); return; }
-        amDlg.close();
-        await showDialog({
-            kind: 'ok', title: 'Added to Bizbox',
-            message: `${res.data.label} is now in Bizbox${res.data.created ? ' (new product)' : ''}.` + (res.data.resolved ? `\n${res.data.resolved} review row${res.data.resolved > 1 ? 's' : ''} resolved.` : ''),
-        });
-        load();
-    };
+    // Add Medicine and the Bizbox import live on the Medicines page (admin)
+    if (isAdmin) $('medLink').innerHTML = '<a class="btn-link sm" href="/medicines">Medicines · RX Formulary &amp; Import</a>';
 
     // ---------- search ----------
     let t = null;

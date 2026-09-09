@@ -21,6 +21,7 @@ app.use('/api/pharmacy',  pharmacyOnly, require('./routers/pharmacy.js'));
 app.use('/api/report',    pharmacyOnly, require('./routers/report.js'));
 app.use('/api/it',        itOnly,       require('./routers/it.js'));
 app.use('/api/import',    importers,    require('./routers/import.js'));
+app.use('/api/formulary', importers,    require('./routers/formulary.js'));
 
 // ===== static frontend =====
 app.use(express.static(path.join(__dirname, 'public')));

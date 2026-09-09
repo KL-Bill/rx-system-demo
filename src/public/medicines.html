@@ -13,7 +13,7 @@
         <div class="appbar">
             <div>
                 <h1>Medicines</h1>
-                <p class="sub" style="margin:0">Keep the medicine list in step with Bizbox — import the Bizbox export, review, apply.</p>
+                <p class="sub" style="margin:0">The RX Formulary — this system's medicine list — and the Bizbox import that keeps it in step with the hospital's main system.</p>
             </div>
         </div>
         <div class="content" id="importRoot"></div>
@@ -21,7 +21,10 @@
 
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
+    <script src="/js/split.js"></script>
+    <script src="/js/medwidget.js"></script>
     <script src="/js/bizbox-import.js"></script>
+    <script src="/js/formulary.js"></script>
     <script>
         (async function () {
             const me = await api('/api/auth/me');
@@ -31,7 +34,7 @@
             if (me.data.user.role !== 'admin') { window.location.href = '/dashboard'; return; }
             mountRail({ mode: 'pharmacy', active: 'medicines' });
             document.getElementById('railUser').textContent = `${me.data.user.name} · ${me.data.user.role}`;
-            BizboxImport.mount(document.getElementById('importRoot'));
+            RxFormulary.mount(document.getElementById('importRoot'));
         })();
     </script>
 </body>

@@ -25,3 +25,13 @@ tr.inactive td { color: var(--muted); }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
 
 /* .btn-link (download as a button) lives in shell.css */
+
+/* doctors & stations side by side */
+.master-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .master-grid { grid-template-columns: 1fr; } }
+/* the two cards must shrink to their column; the shared table min-width is
+   for full-width tables and pushes the stations card off the page here */
+.master-grid > .card { min-width: 0; }
+.master-grid .tbl-wrap table { min-width: 0; }
+.master-grid .tbl-wrap td, .master-grid .tbl-wrap th { white-space: normal; }
+.master-grid .row-actions { flex-wrap: nowrap; }

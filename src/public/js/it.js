@@ -33,6 +33,14 @@
         return `<span class="badge ${color}">${escapeHtml(label)}</span>`;
     };
 
+    // Accounts is master IT's alone: an IT account made on this page runs the
+    // console but never sees who else has a login
+    if (!me.data.user.master) {
+        const t = document.querySelector('#tabs .tab[data-tab="accounts"]');
+        if (t) t.remove();
+        $('pane-accounts').remove();
+    }
+
     // ---------- tabs ----------
     document.querySelectorAll('#tabs .tab').forEach((btn) => {
         btn.onclick = () => {
@@ -41,16 +49,141 @@
             $('pane-' + btn.dataset.tab).style.display = '';
             ({
                 syslog: loadLogs, audit: loadAudit, accounts: loadUsers,
-                prescriptions: loadPrescriptions, backups: loadBackups, medicines: loadMedicines,
+                prescriptions: loadPrescriptions, backups: loadBackups, medicines: loadMedicines, master: loadMaster,
             })[btn.dataset.tab]();
         };
     });
 
-    // ---------- Medicines: the Bizbox import (js/bizbox-import.js), mounted once ----------
+    // ---------- Medicines: RX Formulary + Bizbox import (js/formulary.js), mounted once ----------
     let importUi = null;
     function loadMedicines() {
-        if (!importUi) importUi = BizboxImport.mount($('importRoot'));
+        if (!importUi) importUi = RxFormulary.mount($('importRoot'));
     }
+
+    // ---------- doctors & stations ----------
+    let doctors = [], stations = [];
+    const masterModal = $('masterModalBg');
+    // one small form for both lists: title, two fields, optional "fix the past" tick
+    function openMaster({ title, aLabel, aValue = '', bLabel, bValue = '', fixText, onSave }) {
+        $('mmTitle').textContent = title;
+        $('mmALabel').textContent = aLabel; $('mmA').value = aValue;
+        $('mmBLabel').textContent = bLabel; $('mmB').value = bValue;
+        $('mmFixWrap').style.display = fixText ? '' : 'none';
+        if (fixText) { $('mmFixText').textContent = fixText; $('mmFix').checked = true; }
+        $('mmErr').textContent = '';
+        masterModal.classList.add('show');
+        $('mmA').focus();
+        $('mmSave').onclick = async () => {
+            $('mmErr').textContent = '';
+            const err = await onSave({ a: $('mmA').value.trim(), b: $('mmB').value.trim(), fix: !!fixText && $('mmFix').checked });
+            if (err) { $('mmErr').textContent = err; return; }
+            masterModal.classList.remove('show');
+        };
+    }
+
+    async function loadMaster() {
+        const [d, st] = await Promise.all([api('/api/it/doctors'), api('/api/it/stations')]);
+        if (d.ok) doctors = d.data.doctors;
+        if (st.ok) stations = st.data.stations;
+        renderDoctors(); renderStations();
+    }
+    function renderDoctors() {
+        const q = $('docQ').value.trim().toLowerCase();
+        const showRemoved = $('docShowRemoved').checked;
+        const list = doctors.filter((x) => (showRemoved || !x.deletedAt) && (!q || `${x.name} ${x.license || ''}`.toLowerCase().includes(q)));
+        $('docEmpty').style.display = list.length ? 'none' : 'block';
+        $('docTbl').innerHTML = list.map((x) => `
+            <tr class="${x.deletedAt ? 'inactive' : ''}">
+                <td><b>${escapeHtml(x.name)}</b>${x.deletedAt ? ` <span class="badge red">removed ${fmtDT(x.deletedAt)}</span>` : ''}</td>
+                <td class="mono">${escapeHtml(x.license || '')}</td>
+                <td>${x.prescriptions}</td>
+                <td><div class="row-actions">
+                    ${x.deletedAt ? `<button class="green sm" data-restore="${x.id}" type="button">Restore</button>` : `
+                    <button class="ghost sm" data-edit="${x.id}" type="button">Edit</button>
+                    <button class="danger sm" data-del="${x.id}" type="button">Remove</button>`}
+                </div></td>
+            </tr>`).join('');
+        $('docTbl').querySelectorAll('[data-restore]').forEach((b) => {
+            b.onclick = async () => {
+                const res = await api(`/api/it/doctors/${b.dataset.restore}/restore`, { body: {} });
+                if (!res.ok) await showDialog({ kind: 'danger', title: 'Could not restore', message: res.data.message || 'Try again in a moment.' });
+                loadMaster();
+            };
+        });
+        $('docTbl').querySelectorAll('[data-edit]').forEach((b) => {
+            b.onclick = () => {
+                const x = doctors.find((y) => y.id === b.dataset.edit);
+                openMaster({
+                    title: 'Edit doctor', aLabel: 'Name', aValue: x.name, bLabel: 'License (PRC) No.', bValue: x.license || '',
+                    fixText: `Also fix the ${x.prescriptions} past prescription${x.prescriptions === 1 ? '' : 's'} written under the old name`,
+                    onSave: async ({ a, b: lic, fix }) => {
+                        const res = await api(`/api/it/doctors/${x.id}`, { body: { name: a, license: lic, fixPast: fix } });
+                        if (!res.ok) return res.data.message || 'Could not save';
+                        await loadMaster();
+                        if (res.data.rewritten) await showDialog({ kind: 'ok', title: 'Doctor updated', message: `${res.data.rewritten} past prescription${res.data.rewritten === 1 ? '' : 's'} now carr${res.data.rewritten === 1 ? 'ies' : 'y'} the corrected name.` });
+                        return null;
+                    },
+                });
+            };
+        });
+        $('docTbl').querySelectorAll('[data-del]').forEach((b) => {
+            b.onclick = async () => {
+                const x = doctors.find((y) => y.id === b.dataset.del);
+                const go = await showDialog({
+                    kind: 'warn', title: 'Remove this doctor?',
+                    message: `${x.name} will no longer be offered on the nurse page. Past prescriptions keep the name as it was written. You can bring the doctor back with "Show removed".`,
+                    actions: [{ label: 'Remove', value: true, variant: 'danger' }, { label: 'Keep', value: false, variant: 'ghost', cancel: true }],
+                });
+                if (!go) return;
+                const res = await api(`/api/it/doctors/${x.id}/delete`, { body: {} });
+                if (!res.ok) await showDialog({ kind: 'danger', title: 'Could not remove', message: res.data.message || 'Try again in a moment.' });
+                loadMaster();
+            };
+        });
+    }
+    function renderStations() {
+        $('stTbl').innerHTML = stations.map((x) => `
+            <tr>
+                <td><b>${escapeHtml(x.name)}</b></td>
+                <td>${escapeHtml(x.department)}</td>
+                <td class="mono muted">/?station=${escapeHtml(x.id)}</td>
+                <td>${x.prescriptions}</td>
+                <td><div class="row-actions"><button class="ghost sm" data-edit="${x.id}" type="button">Edit</button></div></td>
+            </tr>`).join('');
+        $('stTbl').querySelectorAll('[data-edit]').forEach((b) => {
+            b.onclick = () => {
+                const x = stations.find((y) => y.id === b.dataset.edit);
+                openMaster({
+                    title: 'Edit station', aLabel: 'Station name', aValue: x.name, bLabel: 'Department', bValue: x.department,
+                    fixText: `If the department changes, also move its ${x.prescriptions} past prescription${x.prescriptions === 1 ? '' : 's'} to the new department`,
+                    onSave: async ({ a, b: dep, fix }) => {
+                        const res = await api(`/api/it/stations/${x.id}`, { body: { name: a, department: dep, fixPast: fix } });
+                        if (!res.ok) return res.data.message || 'Could not save';
+                        await loadMaster();
+                        return null;
+                    },
+                });
+            };
+        });
+    }
+    $('docQ').addEventListener('input', renderDoctors);
+    $('docShowRemoved').addEventListener('change', renderDoctors);
+    $('newDoctorBtn').onclick = () => openMaster({
+        title: 'Add doctor', aLabel: 'Name', bLabel: 'License (PRC) No. (optional)',
+        onSave: async ({ a, b }) => {
+            const res = await api('/api/it/doctors', { body: { name: a, license: b } });
+            if (!res.ok) return res.data.message || 'Could not add';
+            await loadMaster(); return null;
+        },
+    });
+    $('newStationBtn').onclick = () => openMaster({
+        title: 'Add station', aLabel: 'Station name', bLabel: 'Department',
+        onSave: async ({ a, b }) => {
+            const res = await api('/api/it/stations', { body: { name: a, department: b } });
+            if (!res.ok) return res.data.message || 'Could not add';
+            await loadMaster(); return null;
+        },
+    });
 
     // ---------- health strip ----------
     async function loadHealth() {
@@ -123,16 +256,18 @@
         const res = await api('/api/it/users');
         if (!res.ok) return;
         $('userTbl').innerHTML = res.data.users.map((u) => {
-            const isIt = u.role === 'it';
-            const actions = isIt ? '<span class="badge gray">console-managed</span>' : `
+            // your own account: reset the password, but no deactivate button —
+            // the server refuses it anyway, this just keeps the trap out of sight
+            const self = u.id === me.data.user.id;
+            const actions = `
                 <button class="ghost sm" data-act="pw" data-id="${u.id}" data-name="${escapeHtml(u.username)}" type="button">Reset password</button>
-                <button class="${u.active ? 'danger' : 'green'} sm" data-act="active" data-id="${u.id}" data-to="${!u.active}" type="button">
-                    ${u.active ? 'Deactivate' : 'Reactivate'}</button>`;
+                ${self ? '<span class="badge gray">you</span>' : `<button class="${u.active ? 'danger' : 'green'} sm" data-act="active" data-id="${u.id}" data-to="${!u.active}" type="button">
+                    ${u.active ? 'Deactivate' : 'Reactivate'}</button>`}`;
             return `
             <tr class="${u.active ? '' : 'inactive'}">
                 <td>${escapeHtml(u.name)}</td>
                 <td>${escapeHtml(u.username)}</td>
-                <td><span class="badge ${u.role === 'admin' ? 'navy' : 'gray'}">${escapeHtml(u.role)}</span></td>
+                <td><span class="badge ${u.role === 'admin' ? 'navy' : u.role === 'it' ? 'green' : 'gray'}">${escapeHtml(u.role)}</span>${u.role === 'it' ? (u.master ? ' <span class="badge gray" title="Made at the server console; manages accounts">master</span>' : ' <span class="badge gray" title="Made on this page; cannot manage accounts">no account access</span>') : ''}</td>
                 <td>${u.active ? '<span class="badge green">active</span>' : '<span class="badge red">deactivated</span>'}</td>
                 <td><div class="row-actions">${actions}</div></td>
             </tr>`;
@@ -214,9 +349,18 @@
         $('rxAll').checked = boxes.length > 0 && boxes.every((b) => b.checked);
     }
 
+    const rxView = () => $('rxView').value;          // 'live' | 'deleted'
+    function syncRestore() {
+        const del = rxView() === 'deleted';
+        $('rxRestoreSel').style.display = del ? '' : 'none';
+        $('rxDelSel').style.display = del ? 'none' : '';
+        $('rxDelRange').style.display = del ? 'none' : '';
+        $('rxDelHead').style.display = del ? '' : 'none';
+        $('rxRestoreSel').disabled = !rxPicked.size;
+    }
     async function loadPrescriptions() {
         const { from, to } = rxRange();
-        const p = new URLSearchParams({ limit: PAGE, offset: rxOffset });
+        const p = new URLSearchParams({ limit: PAGE, offset: rxOffset, deleted: rxView() === 'deleted' ? 'only' : 'no' });
         if (from) p.set('from', from);
         if (to) p.set('to', to);
         const res = await api('/api/it/prescriptions?' + p.toString());
@@ -234,12 +378,13 @@
                 <td>${escapeHtml(r.department || '—')}</td>
                 <td>${escapeHtml(drName(r.doctor) || '—')}</td>
                 <td>${r.meds}</td>
+                ${rxView() === 'deleted' ? `<td class="muted">${fmtDT(r.deletedAt)}${r.deletedBy ? ` · ${escapeHtml(r.deletedBy)}` : ''}</td>` : ''}
             </tr>`).join('');
 
         $('rxTbl').querySelectorAll('input[data-rx]').forEach((cb) => {
             cb.onchange = () => {
                 if (cb.checked) rxPicked.add(cb.dataset.rx); else rxPicked.delete(cb.dataset.rx);
-                rxSyncButtons();
+                rxSyncButtons(); syncRestore();
             };
         });
 
@@ -247,15 +392,21 @@
         $('rxPgInfo').textContent = `page ${Math.floor(rxOffset / PAGE) + 1} of ${pgTotal}`;
         $('rxPrev').disabled = rxOffset === 0;
         $('rxNext').disabled = rxOffset + PAGE >= rxTotal;
-        rxSyncButtons();
+        rxSyncButtons(); syncRestore();
     }
+    $('rxView').onchange = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); };
+    $('rxRestoreSel').onclick = async () => {
+        const res = await api('/api/it/prescriptions/restore', { body: { ids: [...rxPicked] } });
+        if (!res.ok) { await showDialog({ kind: 'danger', title: 'Could not restore', message: res.data.message || 'Try again in a moment.' }); return; }
+        rxPicked.clear(); loadPrescriptions(); loadHealth();
+    };
 
     $('rxAll').onchange = () => {
         $('rxTbl').querySelectorAll('input[data-rx]').forEach((cb) => {
             cb.checked = $('rxAll').checked;
             if (cb.checked) rxPicked.add(cb.dataset.rx); else rxPicked.delete(cb.dataset.rx);
         });
-        rxSyncButtons();
+        rxSyncButtons(); syncRestore();
     };
     $('rxRefresh').onclick = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); };
     $('rxClear').onclick = () => {
@@ -274,8 +425,8 @@
         const { from, to } = rxRange();
         const n = mode === 'selection' ? rxPicked.size : rxTotal;
         $('rxDelWhat').textContent = mode === 'selection'
-            ? `This permanently deletes the ${n} prescription(s) you ticked.`
-            : `This permanently deletes all ${n} prescription(s) from ${from || 'the beginning'} to ${to || 'now'} — every page, not just this one.`;
+            ? `This deletes the ${n} prescription(s) you ticked.`
+            : `This deletes all ${n} prescription(s) from ${from || 'the beginning'} to ${to || 'now'} — every page, not just this one.`;
         $('rxDelCount').textContent = String(n);
         $('rxDelConfirm').value = '';
         $('rxDelPassword').value = '';

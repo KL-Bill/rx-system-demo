@@ -43,7 +43,7 @@ const resetPassword = async (req, res) => {
 const setActive = async (req, res) => {
     try {
         const active = !!req.body.active;
-        const user = await itModel.setActive(req.params.id, active);
+        const user = await itModel.setActive(req.params.id, active, req.user);
         logEvent(active ? 'user_reactivated' : 'user_deactivated', req, { target: user.username });
         return res.json({ success: true });
     } catch (err) { return handle(res, err); }
@@ -97,12 +97,12 @@ const restoreBackup = async (req, res) => {
 const prescriptions = async (req, res) => {
     try {
         const { from, to, limit, offset } = req.query;
-        return res.json({ success: true, ...(await itModel.listPrescriptions({ from, to, limit, offset })) });
+        return res.json({ success: true, ...(await itModel.listPrescriptions({ from, to, limit, offset, deleted: req.query.deleted })) });
     } catch (err) { return handle(res, err); }
 };
 
-// Deleting prescriptions changes demand counts and the pharmacy dashboard, and
-// nothing short of a backup restore brings them back — so the event is logged
+// Deleting prescriptions changes demand counts and the pharmacy dashboard (they
+// can be restored from the Deleted view) — so the event is logged
 // with the count and the range it covered. No patient data, same as rx_created.
 const deletePrescriptions = async (req, res) => {
     try {
@@ -122,8 +122,69 @@ const health = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
+const restorePrescriptions = async (req, res) => {
+    try {
+        const result = await itModel.restorePrescriptions(req.body || {});
+        logEvent('rx_restored', req, { target: `${result.restored} restored`, details: { count: result.restored } });
+        return res.json({ success: true, ...result });
+    } catch (err) { return handle(res, err); }
+};
+
+// ----- doctors & stations -----
+const doctors = async (req, res) => {
+    try { return res.json({ success: true, doctors: await itModel.listDoctors() }); }
+    catch (err) { return handle(res, err); }
+};
+const createDoctor = async (req, res) => {
+    try {
+        const doctor = await itModel.createDoctor(req.body || {});
+        logEvent('doctor_created', req, { target: doctor.name });
+        return res.status(201).json({ success: true, doctor });
+    } catch (err) { return handle(res, err); }
+};
+const updateDoctor = async (req, res) => {
+    try {
+        const out = await itModel.updateDoctor(req.params.id, req.body || {});
+        logEvent('doctor_updated', req, { target: out.doctor.name, details: { from: out.before.name, prescriptionsRewritten: out.rewritten } });
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+const deleteDoctor = async (req, res) => {
+    try {
+        const out = await itModel.deleteDoctor(req.params.id);
+        logEvent('doctor_deleted', req, { target: out.doctor.name, details: { prescriptionsKept: out.prescriptionsKept } });
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+const restoreDoctor = async (req, res) => {
+    try {
+        const out = await itModel.restoreDoctor(req.params.id);
+        logEvent('doctor_restored', req, { target: out.doctor.name });
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+const stations = async (req, res) => {
+    try { return res.json({ success: true, stations: await itModel.listStations() }); }
+    catch (err) { return handle(res, err); }
+};
+const createStation = async (req, res) => {
+    try {
+        const station = await itModel.createStation(req.body || {});
+        logEvent('station_created', req, { target: `${station.name} · ${station.department}` });
+        return res.status(201).json({ success: true, station });
+    } catch (err) { return handle(res, err); }
+};
+const updateStation = async (req, res) => {
+    try {
+        const out = await itModel.updateStation(req.params.id, req.body || {});
+        logEvent('station_updated', req, { target: `${out.station.name} · ${out.station.department}`, details: { from: `${out.before.name} · ${out.before.department}`, prescriptionsRewritten: out.rewritten } });
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+
 module.exports = {
     logs, audit, users, createUser, resetPassword, setActive,
     backups, createBackup, downloadBackup, restoreBackup, health,
-    prescriptions, deletePrescriptions,
+    prescriptions, deletePrescriptions, restorePrescriptions,
+    doctors, createDoctor, updateDoctor, deleteDoctor, restoreDoctor, stations, createStation, updateStation,
 };

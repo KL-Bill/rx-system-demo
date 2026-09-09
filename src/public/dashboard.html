@@ -26,9 +26,7 @@
         <div class="toolbar">
             <div class="tabs" id="tabs"></div>
             <div class="tb-search"><input id="search" placeholder="Search generic, brand, form, strength…"></div>
-            <div class="tb-right">
-                <button class="sm" id="addMedBtn" type="button" style="display:none">+ Add Medicine</button>
-            </div>
+            <div class="tb-right" id="medLink"></div>
         </div>
 
         <!-- Notion-style filters: chips above the table, see js/filterbar.js -->
@@ -156,26 +154,6 @@
             <span style="flex:1"></span>
             <button class="ghost" id="rvBack" type="button">Back</button>
             <button id="rvNext" type="button">Next</button>
-        </div>
-    </dialog>
-
-    <!-- ===== Add Medicine (admin): Bizbox gained a product the system still calls "not in Bizbox" ===== -->
-    <dialog id="addMedDlg" class="dlg dlg-wide" aria-labelledby="amTitle">
-        <div class="dlg-head">
-            <h3 class="dlg-title" id="amTitle">Add Medicine to Bizbox</h3>
-            <span id="amStatus" class="mb-status"></span>
-        </div>
-        <p class="sub" style="margin:0 0 12px">Search the list first — most products already exist and only need to be marked as in Bizbox. Type something new only when Bizbox carries a product the list has never seen.</p>
-        <div id="amWidget"></div>
-        <div class="mb-row" style="margin-top:10px">
-            <div class="search-wrap"><label for="a-reg">Registration No. (optional)</label><input id="a-reg" autocomplete="off" placeholder="DR-XY12345"></div>
-        </div>
-        <div class="mb-note" id="amNote" style="display:none"></div>
-        <div class="similar" id="amSimilar"></div>
-        <div class="errbox" id="amErr"></div>
-        <div class="dlg-actions">
-            <button class="ghost" id="amCancel" type="button">Cancel</button>
-            <button id="amSave" type="button">Add to Bizbox</button>
         </div>
     </dialog>
 

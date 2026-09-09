@@ -268,16 +268,32 @@ input.locked { background: #f3f6fb; color: var(--navy); font-weight: 600; }
 .suggestions .opt .sub { color: var(--muted); font-size: 12px; margin-left: 8px; flex: 1; text-align: right; }
 .suggestions .opt .badges { flex: none; display: inline-flex; gap: 4px; align-self: center; }
 
-/* the No brand tick sits on the Brand / Form / Strength label line, seen before typing */
-.lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 5px; }
-.lbl-row label { margin: 0; }
-.mb-check.inline { margin: 0; font-size: 12px; color: var(--navy); }
+/* the No brand tick hangs just under the Brand / Form / Strength box — seen
+   before typing, without disturbing the label line. Absolute so the five
+   fields of the row stay level; the row leaves room for it underneath. */
+.mb-check.under { position: absolute; left: 2px; top: 100%; margin: 5px 0 0; font-size: 12px; color: var(--navy); z-index: 1; }
+.mb-fields > .mb-row:first-child { margin-bottom: 26px; }
+.mb-fields.mode-nobrand .mb-f3 { flex: 0 1 220px; }
 /* nobrand mode: the label row (and its tick) stays, the search box and its list go */
 .mb-fields.mode-nobrand [data-mode~="nobrand"].mb-f3 > input,
 .mb-fields.mode-nobrand [data-mode~="nobrand"].mb-f3 > .suggestions { display: none !important; }
 .mb-fields.mode-nobrand .mb-f3 { flex: 0 0 auto; }
 .mb-row3 { margin-top: 8px; }
 .mb-row2 .mb-check { margin-bottom: 10px; }
-/* nobrand mode: only the tick stays, aligned with the generic box */
-.mb-fields.mode-nobrand .mb-f3 .lbl-row > label:first-child { display: none; }
-.mb-fields.mode-nobrand .mb-f3 .lbl-row { margin: 0 0 12px; height: 42px; align-items: flex-end; }
+
+/* everything but Sig on one line: the tick and the two small boxes sit at the
+   bottom of the row, level with the inputs beside them */
+.mb-row > .mb-check { margin: 0 0 12px; flex: none; }
+.mb-row .mb-f2 { flex: 1.2 1 200px; }
+.mb-row .mb-f3 { flex: 2 1 260px; }
+/* nobrand mode: no box, so no label either — the tick sits level with Out of stock */
+.mb-fields.mode-nobrand .mb-f3 > label:first-child { display: none; }
+.mb-fields.mode-nobrand .mb-f3 .mb-check.under { position: static; margin: 0 0 12px; }
+.mb-fields.mode-nobrand .mb-f3 { flex: 0 0 auto; }
+/* checkboxes: the global input rule (padding, border, focus ring, transition)
+   is for text boxes — on a native checkbox it made the box jump to a 36px
+   square for a frame when clicked */
+.mb-check input[type="checkbox"], .stock-toggle input[type="checkbox"], .pp-cols input, .pp-check input {
+    width: 16px; height: 16px; padding: 0; margin: 0; border: none; border-radius: 3px;
+    box-shadow: none !important; transition: none; accent-color: var(--navy); flex: none;
+}

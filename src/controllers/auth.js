@@ -34,7 +34,7 @@ const logout = (req, res) => {
 const me = (req, res) => {
     const u = verifyToken(getToken(req));
     if (!u) return res.status(401).json({ success: false });
-    res.json({ success: true, user: { id: u.id, name: u.name, role: u.role } });
+    res.json({ success: true, user: { id: u.id, name: u.name, role: u.role, master: !!u.master } });
 };
 
 module.exports = { login, logout, me };

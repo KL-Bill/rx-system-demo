@@ -53,6 +53,9 @@
     };
     const canonForm = (f) => FORM_ALIAS[f] || f;
 
+    // salt words that make "Cetirizine Dihydrochloride" the same molecule as "Cetirizine"
+    const SALTS = /\b(?:hydrochloride|dihydrochloride|hcl|hbr|hydrobromide|sodium|potassium|calcium|magnesium|trometamol|tromethamine|tromethamol|maleate|sulfate|sulphate|acetate|besylate|besilate|mesylate|mesilate|citrate|tartrate|bitartrate|succinate|phosphate|diphosphate|bromide|nitrate|fumarate|oxalate|lactate|gluconate|stearate|palmitate|propionate|valerate|dipropionate|monohydrate|dihydrate|trihydrate|anhydrous|micronized|micronised|base|as|salt)\b/gi;
+
     const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&');
 
     // a dose: number + unit, optionally chained with "/" — 500MG, 5MG/5ML,
@@ -146,10 +149,13 @@
         if (altStrength) strength = strength ? `${strength} (${altStrength})` : altStrength;
 
         let brand = rest.join(' ').replace(/\s+/g, ' ').trim();
-        // unbranded: the description starts with the generic itself
+        // unbranded: the description starts with the generic itself — spelled
+        // the same, or with the salt named ("CETIRIZINE DIHYDROCHLORIDE" for
+        // the generic "CETIRIZINE"). Either way there is no brand here.
         const gen = String(opts.generic || '').replace(/\s+/g, ' ').trim().toUpperCase();
         const flat = (x) => x.toUpperCase().replace(/[^A-Z0-9%]/g, '');
-        if (gen && brand && (brand.toUpperCase() === gen || flat(brand) === flat(gen))) brand = '';
+        const molecule = (x) => flat(String(x).replace(/\([^)]*\)/g, ' ').replace(SALTS, ' '));
+        if (gen && brand && (brand.toUpperCase() === gen || flat(brand) === flat(gen) || (molecule(brand) && molecule(brand) === molecule(gen)))) brand = '';
 
         // IV fluids and contrast media carry no form word — "0.9% SODIUM
         // CHLORIDE 500ML" — but a strength that ends in a volume is a solution

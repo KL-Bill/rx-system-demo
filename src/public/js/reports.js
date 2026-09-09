@@ -34,7 +34,15 @@
     const uniq = (get) => [...new Set(all.flatMap(get))].filter(Boolean).sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
     const fbar = FilterBar.create({
         mount: $('filterbar'), storageKey: 'rx_report_filters', onChange: render,
-        quick: [{ label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } }],
+        // the questions the pharmacy asks most, one click each
+        quick: [
+            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' } },
+            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' } },
+            { label: 'Prescribed but In Bizbox', filter: { key: 'reason', op: 'is', value: 'normal' } },
+            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } },
+            { label: 'No remarks', filter: { key: 'remark', op: 'empty' } },
+            { label: 'Still open', filter: { key: 'resolved', op: 'is', value: 'no' } },
+        ],
         fields: [
             { key: 'brand', label: 'Brand', type: 'text', get: (r) => r.brand },
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [

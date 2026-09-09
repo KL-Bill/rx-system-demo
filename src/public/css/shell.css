@@ -305,7 +305,7 @@ table.dense tr.selected td { background: var(--navy-soft); }
 /* a count on each tab; the anomaly one turns red when it is not zero */
 .tab-n { display: inline-block; min-width: 18px; margin-left: 7px; padding: 0 6px; border-radius: 999px; background: #e6ebf5; color: var(--navy); font-size: 11px; line-height: 18px; text-align: center; font-weight: 800; }
 .tab.active .tab-n { background: #fff; }
-.tab-n.warn { background: var(--red); color: #fff; }
+.tab-n.warn, .tab.active .tab-n.warn { background: var(--red); color: #fff; }
 .rmk-cell .rmk-set { align-self: flex-start; margin-top: 4px; padding: 4px 9px; font-size: 12px; }
 .rv-drug { font-weight: 700; color: var(--navy); margin: -6px 0 12px; font-size: 13.5px; }
 
@@ -330,3 +330,8 @@ table.dense tr.selected td { background: var(--navy-soft); }
 .imp-out { font-size: 13px; }
 .imp-foot { margin-top: 10px; font-size: 12.5px; }
 @media (max-width: 1100px) { .imp-groups { grid-template-columns: repeat(2, 1fr); } }
+
+/* --- Medicines page (js/formulary.js) --- */
+.med-tabs { margin-bottom: 14px; }
+.fm-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 12px; }
+.fm-grid th, .fm-grid td { font-size: 12.5px; }

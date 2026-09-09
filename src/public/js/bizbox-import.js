@@ -10,9 +10,10 @@
  *
  * The four groups, in the reviewer's words:
  *   Needs your decision   the import could not settle these on its own
- *   New medicines         will be added and marked In Bizbox
- *   Now marked In Bizbox  exist in the list, will be marked (spelling aside)
- *   Already In Bizbox     nothing to do
+ *   New to RX Formulary   will be added to the RX Formulary and marked In Bizbox
+ *   Now marked In Bizbox  exist in the RX Formulary, will be marked (spelling aside)
+ *   Already in RX Formulary  nothing to do
+ * (Bizbox is the hospital's main system; the RX Formulary is this app's list)
  * Blank, duplicate and remembered lines are a footnote.
  */
 (function (global) {
@@ -21,11 +22,11 @@
 
     const GROUPS = [
         ['decide', 'Needs your decision', 'The import could not settle these. Each says why. Choose Same, New, or Skip.', 'decide'],
-        ['new', 'New medicines', 'Not in the list yet. Each will be added and marked In Bizbox.', ''],
-        ['marked', 'Now marked In Bizbox', 'Already in the list under another spelling or not yet marked. Each will be marked In Bizbox.', ''],
-        ['unchanged', 'Already In Bizbox', 'Already in the list and marked. Nothing changes except the Bizbox wording.', ''],
+        ['new', 'New to RX Formulary', 'Not in the RX Formulary yet. Each will be added to it and marked In Bizbox.', ''],
+        ['marked', 'Now marked In Bizbox', 'Already in the RX Formulary, under another spelling or not yet marked. Each will be marked In Bizbox.', ''],
+        ['unchanged', 'Already in RX Formulary', 'Already in the RX Formulary and marked In Bizbox. Nothing changes except the Bizbox wording.', ''],
     ];
-    const DONE_LABEL = { decide: 'Decided', new: 'Added', marked: 'Marked In Bizbox', unchanged: 'Already In Bizbox' };
+    const DONE_LABEL = { decide: 'Decided', new: 'Added to RX Formulary', marked: 'Marked In Bizbox', unchanged: 'Already in RX Formulary' };
     const STATUS_LABEL = { uploaded: 'Waiting for columns', analyzing: 'Analyzing', awaiting_review: 'Awaiting review', applying: 'Applying', done: 'Done', cancelled: 'Cancelled', failed: 'Failed' };
     const STATUS_TONE = { done: 'green', awaiting_review: 'amber', analyzing: 'navy', applying: 'navy', failed: 'red', cancelled: 'gray', uploaded: 'gray' };
     const WARN_TEXT = {
@@ -84,7 +85,7 @@
             host.innerHTML = `<table class="dense"><thead><tr><th>When</th><th>File</th><th>By</th><th>Status</th><th>Rows</th><th>Outcome</th><th></th></tr></thead><tbody>${list.map((j) => {
                 const r = j.summary.result;
                 const c = j.summary.counts;
-                const out = r ? `added ${r.created} · marked ${r.flagged + r.linked} · already in Bizbox ${r.unchanged}${j.summary.missingCount ? ` · <span class="muted">${j.summary.missingCount} not in file</span>` : ''}`
+                const out = r ? `added ${r.created} · marked ${r.flagged + r.linked} · already in RX Formulary ${r.unchanged}${j.summary.missingCount ? ` · <span class="muted">${j.summary.missingCount} not in file</span>` : ''}`
                     : c ? `to decide ${(c.attention || 0) + (c.same || 0)} · new ${(c.new || 0) + (c.similar || 0)} · to mark ${c.flag || 0}` : (j.summary.error ? `<span class="muted">${esc(j.summary.error)}</span>` : '');
                 return `<tr><td>${fmtDT(j.startedAt)}</td><td class="mono">${esc(j.file)}</td><td>${esc(j.uploadedBy || '')}</td><td><span class="badge ${STATUS_TONE[j.status] || 'gray'}">${STATUS_LABEL[j.status] || j.status}</span></td><td>${j.total || j.summary.rowCount || ''}</td><td class="muted" style="font-size:12px">${out}</td><td class="row-actions"><button class="ghost sm" data-open="${j.id}" type="button">${j.status === 'awaiting_review' ? 'Continue' : 'Open'}</button></td></tr>`;
             }).join('')}</tbody></table>`;
@@ -97,7 +98,7 @@
             main.innerHTML = `
                 <div class="card imp-card">
                     <h2>Import from Bizbox</h2>
-                    <p class="sub">Upload the Bizbox medicine export (.xlsx or .csv, two columns: generic and description). Nothing is changed until you review and press Apply.</p>
+                    <p class="sub">Upload the Bizbox medicine export (.xlsx or .csv, two columns: generic and description) to bring the RX Formulary in step with Bizbox. Nothing is changed until you review and press Apply.</p>
                     <label class="imp-drop" id="impDrop">
                         <input type="file" id="impFile" accept=".xlsx,.csv" hidden>
                         <div><b>Choose the export file</b><div class="muted" style="font-size:12.5px">or drop it here</div></div>
@@ -186,8 +187,8 @@
             const c = job.summary.counts || {};
             const result = job.summary.result || {};
             const live = analyzing
-                ? [['Needs your decision', (c.attention || 0) + (c.same || 0)], ['New medicines', (c.new || 0) + (c.similar || 0)], ['Now marked In Bizbox', c.flag || 0], ['Already In Bizbox', c.unchanged || 0], ['Skipped lines', c.excluded || 0]]
-                : [['Added', result.created || 0], ['Marked In Bizbox', (result.flagged || 0) + (result.linked || 0)], ['Already In Bizbox', result.unchanged || 0], ['Skipped', (result.skipped || 0) + (result.excluded || 0)]];
+                ? [['Needs your decision', (c.attention || 0) + (c.same || 0)], ['New to RX Formulary', (c.new || 0) + (c.similar || 0)], ['Now marked In Bizbox', c.flag || 0], ['Already in RX Formulary', c.unchanged || 0], ['Skipped lines', c.excluded || 0]]
+                : [['Added to RX Formulary', result.created || 0], ['Marked In Bizbox', (result.flagged || 0) + (result.linked || 0)], ['Already in RX Formulary', result.unchanged || 0], ['Skipped', (result.skipped || 0) + (result.excluded || 0)]];
             if (!main.querySelector('#impBar')) {
                 main.innerHTML = `
                     <div class="card imp-card">
@@ -201,8 +202,8 @@
                 main.querySelector('#impCancel').onclick = async () => { await api(`/api/import/${job.id}/cancel`, { body: {} }); stopPoll(); loadHistory(); renderUpload(); };
                 if (!analyzing) main.querySelector('#impCancel').style.display = 'none';
             }
-            main.querySelector('#impPhase').textContent = analyzing ? 'Analyzing the file…' : 'Applying to the medicine list…';
-            main.querySelector('#impPhaseSub').textContent = analyzing ? 'Each line is compared with the medicine list. Nothing is saved yet.' : 'Adding and marking medicines. Please keep this page open.';
+            main.querySelector('#impPhase').textContent = analyzing ? 'Analyzing the file…' : 'Applying to the RX Formulary…';
+            main.querySelector('#impPhaseSub').textContent = analyzing ? 'Each line is compared with the RX Formulary. Nothing is saved yet.' : 'Adding and marking medicines. Please keep this page open.';
             main.querySelector('#impBar').style.width = pct + '%';
             main.querySelector('#impCount').textContent = `${analyzing ? 'Checked' : 'Applied'} ${job.processed} of ${job.total} (${pct}%)`;
             main.querySelector('#impLive').innerHTML = live.map(([l, n]) => `<span class="imp-chip">${l}: <b>${n}</b></span>`).join('');
@@ -230,13 +231,14 @@
                 <div class="card imp-card imp-review">
                     <div class="imp-h">
                         <div><h2>${readOnly ? 'What the import did — ' : ''}${esc(job.file)}</h2>
-                        <p class="sub" style="margin:0">${readOnly ? `Applied ${fmtDT(job.finishedAt)} by ${esc(job.summary.appliedBy || job.uploadedBy || '')}.` : `${job.total} lines checked against the medicine list. Decide the first group, glance at the rest, then Apply.`}</p></div>
+                        <p class="sub" style="margin:0">${readOnly ? `Applied ${fmtDT(job.finishedAt)} by ${esc(job.summary.appliedBy || job.uploadedBy || '')}.` : `${job.total} lines checked against the RX Formulary. Decide the first group, glance at the rest, then Apply.`}</p></div>
                         <div class="tb-right">
                             <input id="impFilter" placeholder="Find a medicine…" value="${esc(filter)}" style="max-width:220px">
                             ${readOnly ? `<a class="btn-link" href="/api/import/${job.id}/report.csv">Download CSV</a><button class="ghost" id="impClose" type="button">Close</button>`
-                                : `<button class="ghost" id="impCancel" type="button">Cancel import</button><button id="impApply" type="button" ${left ? 'disabled' : ''}>${left ? `Apply (${left} to decide)` : 'Apply'}</button>`}
+                                : `<button class="ghost" id="impCancel" type="button">Discard import</button><button id="impApply" type="button" ${left ? 'disabled' : ''}>${left ? `Apply import (${left} left to decide)` : 'Apply import'}</button>`}
                         </div>
                     </div>
+                    ${readOnly ? '' : '<div class="infobox" style="margin:4px 0 10px">Nothing is written to the RX Formulary until you press <b>Apply import</b>. Your choices below are only saved, so you can leave and come back, or discard the whole import.</div>'}
                     <div class="imp-groups">${GROUPS.map(([k, l]) => `<button type="button" class="imp-group ${k} ${k === group ? 'active' : ''} ${!c[k] ? 'empty' : ''}" data-g="${k}"><span class="n">${c[k]}</span><span class="l">${readOnly ? DONE_LABEL[k] : l}</span></button>`).join('')}</div>
                     <p class="sub imp-tabdesc">${readOnly ? '' : gDesc}${group === 'decide' && !readOnly && c.decide ? ' <button class="ghost sm" id="impAcceptAll" type="button">Accept every suggestion</button>' : ''}</p>
                     <div class="tbl-wrap imp-grid-wrap"><table class="dense imp-grid" id="impGrid"></table></div>
@@ -250,7 +252,7 @@
             if (readOnly) main.querySelector('#impClose').onclick = () => renderUpload();
             else {
                 main.querySelector('#impCancel').onclick = async () => {
-                    const go = await showDialog({ kind: 'warn', title: 'Cancel this import?', message: 'Nothing has been written. Your decisions on this file will be lost.', actions: [{ label: 'Cancel import', value: true, variant: 'danger' }, { label: 'Keep working', value: false, variant: 'ghost', cancel: true }] });
+                    const go = await showDialog({ kind: 'warn', title: 'Discard this import?', message: 'Nothing has been written to the RX Formulary. Your choices on this file will be forgotten; you can upload it again any time.', actions: [{ label: 'Discard', value: true, variant: 'danger' }, { label: 'Keep working', value: false, variant: 'ghost', cancel: true }] });
                     if (!go) return;
                     await api(`/api/import/${job.id}/cancel`, { body: {} }); loadHistory(); renderUpload();
                 };
@@ -264,9 +266,9 @@
         // what will happen to a row, in one line
         const outcomeText = (r, past) => {
             const g = groupOf(r);
-            if (g === 'new') return `${past ? 'Added' : 'Will be added'} as <b>${esc(r.generic)}</b> — ${esc(ownText(r))}`;
+            if (g === 'new') return `${past ? 'Added to RX Formulary' : 'Will be added to RX Formulary'} as <b>${esc(r.generic)}</b> — ${esc(ownText(r))}`;
             if (g === 'marked') return `${past ? 'Marked' : 'Will mark'} <b>${esc(r.match ? r.match.generic : r.generic)}</b> — ${esc(productText(r.match))}`;
-            if (g === 'unchanged') return `Already In Bizbox as <b>${esc(r.match ? r.match.generic : r.generic)}</b> — ${esc(productText(r.match))}`;
+            if (g === 'unchanged') return `Already in RX Formulary as <b>${esc(r.match ? r.match.generic : r.generic)}</b> — ${esc(productText(r.match))}`;
             if (g === 'skipped') return past ? 'Skipped' : 'Will be skipped';
             if (g === 'excluded') return r.note ? `Skipped — ${esc(r.note)}` : 'Skipped';
             return '';
@@ -321,11 +323,23 @@
 
             grid.querySelectorAll('tr[data-i]').forEach((tr) => {
                 const r = items.find((x) => x.i === Number(tr.dataset.i));
-                tr.querySelectorAll('input.cell').forEach((cell) => { cell.onchange = () => { decide(r, { [cell.dataset.f]: cell.value.trim() }); renderGrid(); refreshApply(); }; });
-                const on = (cls, fn) => { const b = tr.querySelector(cls); if (b) b.onclick = fn; };
-                on('.act-same', () => { decide(r, { action: 'same' }); renderReview(); });
-                on('.act-new', () => { if (r.generic) { decide(r, { action: 'new' }); renderReview(); } });
-                on('.act-skip', () => { decide(r, { action: 'skip' }); renderReview(); });
+                // typed values are taken as they are typed — no rebuild on blur,
+                // so the first click on a button always lands on that button
+                const fields = () => { const o = {}; tr.querySelectorAll('input.cell').forEach((c) => { o[c.dataset.f] = c.value.trim(); }); return o; };
+                const syncRow = () => {
+                    const f = fields();
+                    const gen = tr.querySelector('input.cell[data-f=generic]');
+                    if (gen) gen.style.borderColor = f.generic ? '' : 'var(--red)';
+                    const add = tr.querySelector('.act-new');
+                    if (add) { add.disabled = !f.generic; add.title = f.generic ? '' : 'type a generic first'; }
+                };
+                tr.querySelectorAll('input.cell').forEach((cell) => {
+                    cell.oninput = () => { decide(r, { [cell.dataset.f]: cell.value.trim() }); syncRow(); };
+                });
+                const on = (cls, fn) => { const b = tr.querySelector(cls); if (b) b.onmousedown = (e) => e.preventDefault(); if (b) b.onclick = fn; };
+                on('.act-same', () => { decide(r, { ...fields(), action: 'same' }); renderReview(); });
+                on('.act-new', () => { const f = fields(); if (f.generic) { decide(r, { ...f, action: 'new' }); renderReview(); } });
+                on('.act-skip', () => { decide(r, { ...(tr.querySelector('input.cell') ? fields() : {}), action: 'skip' }); renderReview(); });
                 on('.act-undo', () => { decide(r, { action: r.category === 'attention' || r.category === 'same' ? 'review' : (r.match && !r.match.ihf ? 'same' : 'new') }); renderReview(); });
             });
         }
@@ -349,7 +363,7 @@
         function refreshApply() {
             const b = main.querySelector('#impApply'); if (!b) return;
             const left = pendingCount();
-            b.disabled = left > 0; b.textContent = left ? `Apply (${left} to decide)` : 'Apply';
+            b.disabled = left > 0; b.textContent = left ? `Apply import (${left} left to decide)` : 'Apply import';
             const c = countsNow();
             main.querySelectorAll('.imp-group').forEach((g) => { g.querySelector('.n').textContent = c[g.dataset.g]; g.classList.toggle('empty', !c[g.dataset.g]); });
         }
@@ -358,9 +372,9 @@
             clearTimeout(flushT); await flush();
             const c = countsNow();
             const go = await showDialog({
-                kind: 'warn', title: 'Apply this import?',
-                message: `${c.new} medicine${c.new === 1 ? '' : 's'} will be added, ${c.marked} marked In Bizbox, ${c.unchanged} left as they are (wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. This cannot be undone from here.`,
-                actions: [{ label: 'Apply', value: true, variant: 'primary' }, { label: 'Not yet', value: false, variant: 'ghost', cancel: true }],
+                kind: 'warn', title: 'Apply this import to the RX Formulary?',
+                message: `${c.new} medicine${c.new === 1 ? '' : 's'} will be added to the RX Formulary, ${c.marked} marked In Bizbox, ${c.unchanged} already in the RX Formulary (Bizbox wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. This cannot be undone from here.`,
+                actions: [{ label: 'Apply import', value: true, variant: 'primary' }, { label: 'Not yet', value: false, variant: 'ghost', cancel: true }],
             });
             if (!go) return;
             const res = await api(`/api/import/${job.id}/apply`, { body: {} });
@@ -377,10 +391,10 @@
                     <h2>Import applied</h2>
                     <p class="sub">${esc(job.file)} · ${fmtDT(job.finishedAt)} · by ${esc(job.summary.appliedBy || job.uploadedBy || '')}</p>
                     <div class="imp-summary">
-                        ${[['created', 'Added', 'New medicines, now marked In Bizbox'], ['linked', 'Marked In Bizbox', 'Existing medicines, marked'], ['unchanged', 'Already In Bizbox', 'No change needed'], ['skipped', 'Skipped', 'By you, or not a medicine']].map(([k, l, d]) => `<div class="imp-sum"><div class="n">${k === 'linked' ? (r.linked || 0) + (r.flagged || 0) : k === 'skipped' ? (r.skipped || 0) + (r.excluded || 0) : (r[k] || 0)}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join('')}
+                        ${[['created', 'Added to RX Formulary', 'New medicines, now marked In Bizbox'], ['linked', 'Marked In Bizbox', 'Already in the RX Formulary, now marked'], ['unchanged', 'Already in RX Formulary', 'No change needed'], ['skipped', 'Skipped', 'By you, or not a medicine']].map(([k, l, d]) => `<div class="imp-sum"><div class="n">${k === 'linked' ? (r.linked || 0) + (r.flagged || 0) : k === 'skipped' ? (r.skipped || 0) + (r.excluded || 0) : (r[k] || 0)}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join('')}
                     </div>
-                    <div class="okbox" style="margin-top:12px">The nurse's list now shows these medicines as In Bizbox. Anything the file did not mention was left exactly as it was.</div>
-                    ${missing.length ? `<details class="imp-missing"><summary><b>${job.summary.missingCount}</b> medicine${job.summary.missingCount === 1 ? '' : 's'} marked In Bizbox in this system but not in this file — for information only, nothing was changed</summary>
+                    <div class="okbox" style="margin-top:12px">The RX Formulary now shows these medicines as In Bizbox. Anything the file did not mention was left exactly as it was.</div>
+                    ${missing.length ? `<details class="imp-missing"><summary><b>${job.summary.missingCount}</b> medicine${job.summary.missingCount === 1 ? '' : 's'} marked In Bizbox in the RX Formulary but not in this file — for information only, nothing was changed</summary>
                         <div class="tbl-wrap"><table class="dense"><thead><tr><th>Generic</th><th>Brand / Form / Strength</th><th>Last seen in a file</th></tr></thead><tbody>${missing.map((m) => `<tr><td>${esc(m.generic)}</td><td>${esc(m.description)}</td><td class="muted">${m.seenAt ? fmtDT(m.seenAt) : 'never'}</td></tr>`).join('')}</tbody></table></div>
                         ${job.summary.missingCount > missing.length ? `<div class="muted" style="font-size:12px;margin-top:6px">First ${missing.length} shown.</div>` : ''}</details>` : ''}
                     <div class="mb-foot" style="justify-content:flex-end">

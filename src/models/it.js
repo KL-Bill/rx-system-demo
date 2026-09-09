@@ -11,10 +11,13 @@ const BACKUP_DIR = process.env.BACKUP_DIR || '/backups';
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-// roles the IT page may hand out. 'it' is deliberately absent: IT accounts
-// are created only at the server console (scripts/create-admin.js), so a
-// compromised IT session can't mint more IT logins.
-const CREATABLE_ROLES = ['admin', 'staff'];
+// roles the IT page may hand out. An IT account made here is a second-tier
+// IT: it runs the console but never manages accounts (is_master = false).
+// Master IT -- the only kind that reaches this at all -- is made at the server
+// console by scripts/create-admin.js. Two guards keep anyone from locking
+// themselves out: you cannot deactivate yourself, and the last active master
+// IT account cannot be deactivated.
+const CREATABLE_ROLES = ['admin', 'staff', 'it'];
 
 const listLogs = (filters) => db.getSystemLogs(filters);
 const listAudit = () => db.getAudit();   // pharmacy management actions (no patient data)
@@ -32,15 +35,13 @@ const createUser = async ({ name, username, password, role }) => {
         throw httpError(409, `A user named "${username}" already exists`);
     }
     const id = newId('u');
-    await db.insertUser({ id, name: name || username, username, passwordHash: bcrypt.hashSync(password, 10), role });
-    return { id, name: name || username, username, role, active: true };
+    await db.insertUser({ id, name: name || username, username, passwordHash: bcrypt.hashSync(password, 10), role, master: false });
+    return { id, name: name || username, username, role, active: true, master: false };
 };
 
-// IT accounts stay CLI-managed end to end — the API can't touch them either
 const getManagedUser = async (id) => {
     const user = await db.getUserById(id);
     if (!user) throw httpError(404, 'No such user');
-    if (user.role === 'it') throw httpError(403, 'IT accounts are managed from the server console only');
     return user;
 };
 
@@ -51,8 +52,14 @@ const resetPassword = async (id, password) => {
     return user;
 };
 
-const setActive = async (id, active) => {
+// actor: the IT user making the change — the lock-out guards need to know
+const setActive = async (id, active, actor) => {
     const user = await getManagedUser(id);
+    if (!active && actor && actor.id === user.id) throw httpError(400, 'You cannot deactivate your own account');
+    if (!active && user.role === 'it' && user.master && user.active) {
+        const others = (await db.listUsers()).filter((u) => u.role === 'it' && u.master && u.active && u.id !== user.id);
+        if (!others.length) throw httpError(400, 'This is the only active master IT account — it cannot be deactivated');
+    }
     await db.setUserActive(id, !!active);
     return user;
 };
@@ -231,11 +238,12 @@ const restoreBackup = async (fileName, { password, confirm }, actor) => {
 const dayStart = (s) => (s ? new Date(`${s}T00:00:00`).getTime() : null);
 const dayEnd = (s) => (s ? new Date(`${s}T23:59:59.999`).getTime() : null);
 
-const listPrescriptions = ({ from, to, limit, offset }) => db.listPrescriptionsPage({
+const listPrescriptions = ({ from, to, limit, offset, deleted }) => db.listPrescriptionsPage({
     from: dayStart(from),
     to: dayEnd(to),
     limit: Math.min(Number(limit) || 50, 200),
     offset: Math.max(Number(offset) || 0, 0),
+    deleted: deleted === 'only' ? 'only' : 'no',
 });
 
 // Two modes, one entry point:
@@ -244,9 +252,9 @@ const listPrescriptions = ({ from, to, limit, offset }) => db.listPrescriptionsP
 //
 // Both need the caller's own password re-entered and `confirm` typed as the
 // exact number of rows about to go, the same shape as restoreBackup(): the
-// point is to make the person read the count before agreeing to it. Unlike a
-// restore there is no safety dump — deleted prescriptions come back only from
-// a backup — so the count is the last line of defence.
+// point is to make the person read the count before agreeing to it. The rows
+// are only marked deleted: they leave every list and count, and IT can bring
+// them back from the Deleted view.
 const deletePrescriptions = async ({ ids, from, to, password, confirm }, actor) => {
     const user = await db.getUserById(actor.id);
     if (!user || !(await bcrypt.compare(password || '', user.password))) {
@@ -275,10 +283,16 @@ const deletePrescriptions = async ({ ids, from, to, password, confirm }, actor) 
     }
 
     const deleted = byIds
-        ? await db.deletePrescriptionsByIds(ids)
-        : await db.deletePrescriptionsByRange({ from: dayStart(from), to: dayEnd(to) });
+        ? await db.deletePrescriptionsByIds(ids, actor.name)
+        : await db.deletePrescriptionsByRange({ from: dayStart(from), to: dayEnd(to) }, actor.name);
 
     return { deleted, mode: byIds ? 'selection' : 'range', from: from || null, to: to || null };
+};
+
+// back from the Deleted view; no password — undoing a delete is the safe direction
+const restorePrescriptions = async ({ ids }) => {
+    if (!Array.isArray(ids) || !ids.length) throw httpError(400, 'Select the prescriptions to restore');
+    return { restored: await db.restorePrescriptionsByIds(ids) };
 };
 
 const health = async () => {
@@ -296,8 +310,70 @@ const health = async () => {
     };
 };
 
+// ----- master data: doctors and stations -----
+// The lists the nurse page offers. A doctor is stored on prescriptions by
+// name, a station by id with the department copied beside it — so a rename
+// can also rewrite those copies (fixPast), which keeps the reports whole.
+const clean = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+
+const listDoctors = async () => {
+    const doctors = await db.getDoctorsAll();
+    return Promise.all(doctors.map(async (d) => ({ ...d, prescriptions: await db.countPrescriptionsByDoctorName(d.name) })));
+};
+const createDoctor = async ({ name, license }) => {
+    name = clean(name); license = clean(license);
+    if (!name) throw httpError(400, 'Name is required');
+    if ((await db.getDoctorsAll()).some((d) => d.name.toLowerCase() === name.toLowerCase())) throw httpError(409, 'A doctor with this name already exists (it may be under Removed)');
+    return db.insertDoctor({ name, license });
+};
+const updateDoctor = async (id, { name, license, fixPast }) => {
+    const before = await db.getDoctor(id);
+    if (!before) throw httpError(404, 'Doctor not found');
+    name = clean(name); license = clean(license);
+    if (!name) throw httpError(400, 'Name is required');
+    if ((await db.getDoctors()).some((d) => d.id !== id && d.name.toLowerCase() === name.toLowerCase())) throw httpError(409, 'Another doctor already has this name');
+    const doctor = await db.updateDoctor(id, { name, license });
+    let rewritten = 0;
+    if (fixPast && before.name.toLowerCase() !== name.toLowerCase()) rewritten = await db.renamePrescriptionDoctor(before.name, name);
+    return { doctor, before, rewritten };
+};
+const deleteDoctor = async (id) => {
+    const before = await db.getDoctor(id);
+    if (!before) throw httpError(404, 'Doctor not found');
+    await db.deleteDoctor(id);     // soft: hidden from nurses, restorable here
+    // past prescriptions keep the name they were written with
+    return { doctor: before, prescriptionsKept: await db.countPrescriptionsByDoctorName(before.name) };
+};
+const restoreDoctor = async (id) => {
+    const before = await db.getDoctor(id);
+    if (!before) throw httpError(404, 'Doctor not found');
+    await db.restoreDoctor(id);
+    return { doctor: before };
+};
+
+const listStations = async () => {
+    const stations = await db.getStations();
+    return Promise.all(stations.map(async (s) => ({ ...s, prescriptions: await db.countPrescriptionsByStation(s.id) })));
+};
+const createStation = async ({ name, department }) => {
+    name = clean(name); department = clean(department);
+    if (!name || !department) throw httpError(400, 'Name and department are required');
+    return db.insertStation({ name, department });
+};
+const updateStation = async (id, { name, department, fixPast }) => {
+    const before = await db.getStation(id);
+    if (!before) throw httpError(404, 'Station not found');
+    name = clean(name); department = clean(department);
+    if (!name || !department) throw httpError(400, 'Name and department are required');
+    const station = await db.updateStation(id, { name, department });
+    let rewritten = 0;
+    if (fixPast && before.department !== department) rewritten = await db.renameStationDepartment(id, department);
+    return { station, before, rewritten };
+};
+
 module.exports = {
     listLogs, listAudit, listUsers, createUser, resetPassword, setActive,
     listBackups, backupPath, createBackup, restoreBackup, health,
-    listPrescriptions, deletePrescriptions,
+    listPrescriptions, deletePrescriptions, restorePrescriptions,
+    listDoctors, createDoctor, updateDoctor, deleteDoctor, restoreDoctor, listStations, createStation, updateStation,
 };
