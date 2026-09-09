@@ -14,7 +14,7 @@
         <div class="appbar">
             <div>
                 <h1>New Prescription</h1>
-                <p class="sub" style="margin:0">For medicines the main system won't release — not in the Formulary, or out of stock.</p>
+                <p class="sub" style="margin:0">For medicines Bizbox won't release — not in Bizbox, or out of stock.</p>
             </div>
         </div>
 
@@ -23,7 +23,7 @@
             <!-- builder -->
             <div class="card">
                 <h2>New Prescription</h2>
-                <p class="sub">For medicines the main system won't release — not in the Formulary, or out of stock. Add them, then print.</p>
+                <p class="sub">For medicines Bizbox won't release — not in Bizbox, or out of stock. Add them, then print.</p>
 
                 <label>Station / Department</label>
                 <select id="station"></select>
@@ -41,41 +41,60 @@
                 </div>
 
                 <div class="row">
-                    <div><label>Patient name</label><input id="patient" placeholder="Juan Dela Cruz"></div>
+                    <div><label>Patient name</label><input id="patient" placeholder="Enter patient name…"></div>
                     <div><label>Age</label><input id="age" placeholder="optional"></div>
                     <div style="flex:.6"><label>Sex</label><input id="sex" placeholder="M / F"></div>
                 </div>
                 <label>Address</label>
                 <input id="address" placeholder="optional">
 
-                <!-- medicine builder -->
+                <!-- medicine builder: one search box for Brand/Form/Strength, the
+                     way Bizbox lists a product. Typing a medicine Bizbox does not
+                     have opens the three fields underneath so the nurse confirms
+                     what is the brand, the form and the strength before adding. -->
                 <div class="builder">
                     <div class="builder-head">
                         <span>Add medicine</span>
                         <span id="mbStatus" class="mb-status"></span>
                     </div>
-                    <p class="sub" style="margin:0 0 12px">Type a generic, brand, or form — pick from the suggestions. Type a new value to add a medicine not in the Formulary.</p>
+                    <p class="sub" style="margin:0 0 12px">Type the generic, then the brand, form and strength as Bizbox lists it — pick from the suggestions. Type something new to add a medicine Bizbox does not have.</p>
+                    <div class="mb-fields">
                     <div class="mb-row">
                         <div class="search-wrap mb-f2">
-                            <label>Generic</label>
-                            <input id="f-generic" autocomplete="off" placeholder="Paracetamol">
+                            <label for="f-generic">Generic</label>
+                            <input id="f-generic" autocomplete="off" placeholder="Enter generic name…">
                             <div class="suggestions" id="sg-generic" style="display:none"></div>
                         </div>
-                        <div class="search-wrap mb-f2">
-                            <label>Brand</label>
-                            <input id="f-brand" autocomplete="off" placeholder="Biogesic">
+                        <div class="search-wrap mb-f3" data-mode="search split">
+                            <label for="f-combo">Brand / Form / Strength</label>
+                            <input id="f-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
+                            <div class="suggestions" id="sg-combo" style="display:none"></div>
+                        </div>
+                    </div>
+                    <!-- the three fields behind the box: only for a medicine Bizbox
+                         does not list (split) or when No brand is ticked -->
+                    <div class="mb-row mb-row-split" data-mode="split nobrand">
+                        <div class="search-wrap" data-mode="split">
+                            <label for="f-brand">Brand</label>
+                            <input id="f-brand" autocomplete="off" placeholder="Enter brand…">
                             <div class="suggestions" id="sg-brand" style="display:none"></div>
                         </div>
-                        <div class="search-wrap">
-                            <label>Form</label>
-                            <input id="f-form" autocomplete="off" placeholder="Tablet">
+                        <div class="search-wrap" data-mode="split nobrand">
+                            <label for="f-form">Form</label>
+                            <input id="f-form" autocomplete="off" placeholder="Enter form…">
                             <div class="suggestions" id="sg-form" style="display:none"></div>
                         </div>
-                        <div class="search-wrap">
-                            <label>Strength</label>
-                            <input id="f-strength" autocomplete="off" placeholder="500mg">
+                        <div class="search-wrap" data-mode="split nobrand">
+                            <label for="f-strength">Strength</label>
+                            <input id="f-strength" autocomplete="off" placeholder="Enter strength…">
                             <div class="suggestions" id="sg-strength" style="display:none"></div>
                         </div>
+                    </div>
+                    </div>
+                    <div id="f-splitNote" class="mb-splitnote" style="display:none"></div>
+                    <div class="mb-row mb-row2">
+                        <label class="mb-check"><input type="checkbox" id="f-nobrand"> No brand</label>
+                        <label class="mb-check"><input type="checkbox" id="f-oos"> Out of stock in Bizbox</label>
                         <div class="mb-qty">
                             <label>Vol (mL)</label>
                             <input id="f-vol" type="number" min="0" step="any" placeholder="—">
@@ -108,40 +127,56 @@
             <!-- live preview -->
             <div class="card">
                 <h2>Preview</h2>
-                <p class="sub"><b>Bold</b> = not in the Formulary · <i>Italic</i> = no/not enough stock.</p>
+                <p class="sub"><b>Bold</b> = not in Bizbox · <i>Italic</i> = out of stock in Bizbox.</p>
                 <div id="preview"></div>
             </div>
         </div>
         </div>
     </div>
 
-    <!-- ===== edit medicine dialog (same cascade as the Add panel above) ===== -->
+    <!-- ===== edit medicine dialog (same widget as the Add panel above) ===== -->
     <dialog id="medEditDlg" class="dlg dlg-wide" aria-labelledby="edTitle">
         <div class="dlg-head">
             <h3 class="dlg-title" id="edTitle">Edit medicine</h3>
             <span id="edStatus" class="mb-status"></span>
         </div>
-        <div class="mb-row">
-            <div class="search-wrap mb-f2">
-                <label for="e-generic">Generic</label>
-                <input id="e-generic" autocomplete="off" placeholder="Paracetamol">
-                <div class="suggestions" id="esg-generic" style="display:none"></div>
-            </div>
-            <div class="search-wrap mb-f2">
-                <label for="e-brand">Brand</label>
-                <input id="e-brand" autocomplete="off" placeholder="Biogesic">
-                <div class="suggestions" id="esg-brand" style="display:none"></div>
-            </div>
-            <div class="search-wrap">
-                <label for="e-form">Form</label>
-                <input id="e-form" autocomplete="off" placeholder="Tablet">
-                <div class="suggestions" id="esg-form" style="display:none"></div>
-            </div>
-            <div class="search-wrap">
-                <label for="e-strength">Strength</label>
-                <input id="e-strength" autocomplete="off" placeholder="500mg">
-                <div class="suggestions" id="esg-strength" style="display:none"></div>
-            </div>
+        <div class="mb-fields">
+                    <div class="mb-row">
+                        <div class="search-wrap mb-f2">
+                            <label for="e-generic">Generic</label>
+                            <input id="e-generic" autocomplete="off" placeholder="Enter generic name…">
+                            <div class="suggestions" id="esg-generic" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap mb-f3" data-mode="search split">
+                            <label for="e-combo">Brand / Form / Strength</label>
+                            <input id="e-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
+                            <div class="suggestions" id="esg-combo" style="display:none"></div>
+                        </div>
+                    </div>
+                    <!-- the three fields behind the box: only for a medicine Bizbox
+                         does not list (split) or when No brand is ticked -->
+                    <div class="mb-row mb-row-split" data-mode="split nobrand">
+                        <div class="search-wrap" data-mode="split">
+                            <label for="e-brand">Brand</label>
+                            <input id="e-brand" autocomplete="off" placeholder="Enter brand…">
+                            <div class="suggestions" id="esg-brand" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap" data-mode="split nobrand">
+                            <label for="e-form">Form</label>
+                            <input id="e-form" autocomplete="off" placeholder="Enter form…">
+                            <div class="suggestions" id="esg-form" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap" data-mode="split nobrand">
+                            <label for="e-strength">Strength</label>
+                            <input id="e-strength" autocomplete="off" placeholder="Enter strength…">
+                            <div class="suggestions" id="esg-strength" style="display:none"></div>
+                        </div>
+                    </div>
+                    </div>
+        <div id="e-splitNote" class="mb-splitnote" style="display:none"></div>
+        <div class="mb-row mb-row2">
+            <label class="mb-check"><input type="checkbox" id="e-nobrand"> No brand</label>
+            <label class="mb-check"><input type="checkbox" id="e-oos"> Out of stock in Bizbox</label>
             <div class="mb-qty">
                 <label for="e-vol">Vol (mL)</label>
                 <input id="e-vol" type="number" min="0" step="any" placeholder="—">
@@ -168,6 +203,8 @@
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
     <script src="/js/slip.js"></script>
+    <script src="/js/split.js"></script>
+    <script src="/js/medwidget.js"></script>
     <script src="/js/rx.js"></script>
 </body>
 </html>

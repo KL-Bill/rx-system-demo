@@ -165,3 +165,119 @@ table.dense tr.selected td { background: var(--navy-soft); }
     .detail-drawer { width: 100%; }
     .kpis-inline { display: none; }
 }
+
+/* --- Notion-style filter bar (js/filterbar.js) --- */
+.fbar {
+    position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 9px 22px; background: #fff; border-bottom: 1px solid var(--line);
+}
+.fchip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px 5px 11px;
+    border: 1px solid #d9e3f7; border-radius: 999px; background: var(--navy-soft);
+    font-size: 12.5px; color: var(--navy); cursor: pointer; white-space: nowrap;
+}
+.fchip .k { font-weight: 700; }
+.fchip .o { color: var(--muted); }
+.fchip b { font-weight: 700; }
+.fchip .x { background: transparent; color: var(--muted); padding: 0 5px; font-size: 11px; border-radius: 999px; }
+.fchip .x:hover { background: #fff; color: var(--red); }
+.fadd, .fclear {
+    background: transparent; color: var(--navy); border: 1px dashed #c5d2ec;
+    padding: 5px 11px; font-size: 12.5px; border-radius: 999px;
+}
+.fadd:hover { background: var(--navy-soft); }
+.fclear { border-style: solid; border-color: transparent; color: var(--muted); }
+.fclear:hover { background: #f2f6fd; color: var(--red); }
+.fcount { margin-left: auto; font-size: 12px; color: var(--muted); }
+.fpop {
+    position: absolute; z-index: 45; min-width: 360px; max-width: calc(100vw - 100px);
+    background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+    box-shadow: 0 14px 40px rgba(20, 48, 107, .16); display: grid; gap: 10px;
+}
+.fpop-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.fpop-row select, .fpop-row input { width: auto; flex: 1 1 110px; padding: 7px 10px; font-size: 13px; }
+.fpop-row .f-val:empty { display: none; }
+.fpop-actions { display: flex; align-items: center; gap: 8px; }
+.fpop-actions .sp { flex: 1; }
+
+/* --- remarks (review drawer + table cell) --- */
+.rmk-cell { display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+.rmk-cell .note { font-size: 12px; color: var(--muted); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rmk-cell .n { font-size: 11px; color: var(--muted); }
+.remarks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.remark { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: #fafcff; }
+.remark .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.remark .who { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.remark .note { font-size: 13px; margin-top: 4px; white-space: pre-line; }
+.remark-form { display: grid; gap: 8px; }
+.remark-form label { margin: 0; }
+.remark-form textarea, .rmk-textarea {
+    width: 100%; min-height: 58px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+    font: inherit; font-size: 13px; resize: vertical;
+}
+.remark-form textarea:focus, .rmk-textarea:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px var(--navy-soft); }
+
+/* --- stepper (resolve via "Available in Bizbox", Add Medicine confirm) --- */
+.steps { display: flex; gap: 6px; margin-bottom: 14px; }
+.step { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f4f7fc; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.step .n { width: 20px; height: 20px; border-radius: 50%; background: #dfe6f3; color: var(--navy); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex: none; }
+.step.active { background: var(--navy-soft); color: var(--navy); }
+.step.active .n { background: var(--navy); color: #fff; }
+.step.done .n { background: var(--green); color: #fff; }
+.step-pane { display: none; }
+.step-pane.active { display: block; }
+.infobox { background: var(--navy-soft); color: var(--navy); border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.okbox { background: var(--green-soft); color: var(--green-dark); border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.similar { margin-top: 12px; }
+.similar h5 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.similar .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; cursor: pointer; font-size: 13px; background: #fff; }
+.similar .opt:hover { border-color: var(--navy); background: #f8fafe; }
+.similar .opt.chosen { border-color: var(--green); background: var(--green-soft); }
+.similar .opt .muted { font-size: 12px; }
+.summary-grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; font-size: 13px; margin: 10px 0; }
+.summary-grid .k { color: var(--muted); }
+
+/* --- Bizbox import (js/bizbox-import.js) --- */
+.imp { display: grid; gap: 18px; }
+.imp-card h2 { margin-bottom: 6px; }
+.imp-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.imp-h h3 { margin: 0; font-size: 15px; color: var(--navy); }
+.imp-history { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; }
+.imp-drop {
+    display: flex; align-items: center; justify-content: center; text-align: center; min-height: 120px;
+    border: 2px dashed #c5d2ec; border-radius: 14px; background: #fafcff; cursor: pointer; color: var(--navy); padding: 20px;
+}
+.imp-drop:hover, .imp-drop.over { border-color: var(--navy); background: var(--navy-soft); }
+.imp-sample td, .imp-sample th { font-size: 12.5px; }
+.imp-progress { height: 14px; border-radius: 999px; background: #e9eef8; overflow: hidden; margin: 16px 0 8px; }
+.imp-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--navy), #3b63c4); border-radius: 999px; transition: width .3s ease; }
+.imp-count { font-weight: 700; color: var(--navy); }
+.imp-live { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.imp-chip { font-size: 12px; background: #f2f6fd; color: var(--muted); border-radius: 999px; padding: 4px 10px; }
+.imp-chip b { color: var(--navy); }
+.imp-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+.imp-sum { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fafcff; }
+.imp-sum .n { font-size: 22px; font-weight: 800; color: var(--navy); line-height: 1.1; }
+.imp-sum .l { font-size: 12.5px; font-weight: 700; color: var(--ink); margin-top: 2px; }
+.imp-sum .d { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+.imp-sum.attention { border-color: #f3d9b0; background: var(--amber-soft); }
+.imp-sum.same { border-color: #cfe0ff; background: var(--navy-soft); }
+.imp-tabs { flex-wrap: wrap; margin: 6px 0 4px; }
+.imp-tabs .cnt { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #e6ebf5; color: var(--navy); font-size: 11px; line-height: 18px; text-align: center; }
+.imp-tabdesc { margin: 0 0 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.imp-grid-wrap { max-height: 70vh; }
+.imp-grid { min-width: 1100px !important; }
+.imp-grid th, .imp-grid td { font-size: 12.5px; padding: 6px 8px; vertical-align: top; }
+.imp-grid input.cell { padding: 5px 8px; font-size: 12.5px; border-radius: 7px; }
+.imp-grid select.act { padding: 5px 8px; font-size: 12.5px; border-radius: 7px; width: auto; max-width: 200px; }
+.imp-grid .imp-desc { font-weight: 600; color: var(--navy); min-width: 220px; }
+.imp-grid .imp-match { font-size: 12px; color: var(--muted); }
+.imp-grid .imp-sibs { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.imp-grid .imp-sibs label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 500; color: var(--ink); cursor: pointer; }
+.imp-grid .imp-sibs input { width: auto; margin: 0; }
+.imp-grid .imp-ex label { display: flex; align-items: center; gap: 5px; margin: 0 0 3px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.imp-grid .imp-ex input { width: auto; margin: 0; }
+.imp-grid tr.inactive td { opacity: .55; }
+.imp-missing { margin-top: 14px; }
+.imp-missing summary { cursor: pointer; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafcff; font-size: 13px; }
+.imp-missing .tbl-wrap { margin-top: 10px; max-height: 320px; }

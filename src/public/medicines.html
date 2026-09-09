@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medicines — TMC Pharmacy</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/shell.css">
+    <link rel="stylesheet" href="/css/it.css">
+</head>
+<body>
+    <div class="app">
+        <div class="appbar">
+            <div>
+                <h1>Medicines</h1>
+                <p class="sub" style="margin:0">Keep the medicine list in step with Bizbox — import the Bizbox export, review, apply.</p>
+            </div>
+        </div>
+        <div class="content" id="importRoot"></div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/shell.js"></script>
+    <script src="/js/bizbox-import.js"></script>
+    <script>
+        (async function () {
+            const me = await api('/api/auth/me');
+            if (!me.ok) { window.location.href = '/login'; return; }
+            if (me.data.user.role === 'it') { window.location.href = '/it'; return; }
+            // the import writes the catalog — the pharmacy head's alone
+            if (me.data.user.role !== 'admin') { window.location.href = '/dashboard'; return; }
+            mountRail({ mode: 'pharmacy', active: 'medicines' });
+            document.getElementById('railUser').textContent = `${me.data.user.name} · ${me.data.user.role}`;
+            BizboxImport.mount(document.getElementById('importRoot'));
+        })();
+    </script>
+</body>
+</html>

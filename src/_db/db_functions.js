@@ -69,8 +69,11 @@ const getGenerics = async () => {
     return rows;
 };
 
+// inFormulary = the ihf column = "in Bizbox"; the UI says Bizbox everywhere,
+// the API field keeps its name so nothing downstream has to move
 const COMBO_COLUMNS = `
     g.generic_name AS generic, b.brand_name AS brand, f.form_name AS form, s.label AS strength,
+    s.description AS description,
     s.registration_number AS "registrationNumber", s.volume_ml AS "volumeMl",
     s.ihf AS "inFormulary", g.in_pnf AS "inPnf"`;
 
@@ -90,6 +93,34 @@ const findProduct = async ({ generic, brand = '', form = '', strength = '' }) =>
         LIMIT 1
     `, [generic, brand, form, strength]);
     return rows[0] ? mapCombo(rows[0]) : null;
+};
+
+// the product whose Bizbox description reads exactly like this, under this
+// generic — how an import recognises a row it has seen before, and how the
+// nurse's pick is resolved when only the description travelled
+const findProductByDescription = async ({ generic, description }) => {
+    const { rows } = await pool.query(`
+        SELECT ${COMBO_COLUMNS}
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+        WHERE lower(trim(g.generic_name)) = lower(trim($1))
+          AND lower(trim(s.description)) = lower(trim($2))
+        LIMIT 1
+    `, [generic, description]);
+    return rows[0] ? mapCombo(rows[0]) : null;
+};
+
+// distinct form names — SQL fallback for catalogCache.forms()
+const getFormNames = async () => {
+    const cached = catalogCache.forms();
+    if (cached) return cached;
+    const { rows } = await pool.query(`
+        SELECT min(f.form_name) AS f FROM forms f
+        WHERE f.form_name <> '' AND EXISTS (SELECT 1 FROM strengths s WHERE s.form_id = f.id AND s.ihf)
+        GROUP BY lower(trim(f.form_name)) ORDER BY lower(min(f.form_name))`);
+    return rows.map((r) => r.f);
 };
 
 // ---------- catalog search (autocomplete) ----------
@@ -156,6 +187,7 @@ const suggestOrder = (expr) => `
 //    soleGeneric: the generic, when this choice has exactly one — lets picking
 //    a brand fill the generic in for the nurse
 const suggestOptions = async (field, sel = {}) => {
+    if (field === 'combo') return suggestCombo(sel);
     const col = SUGGEST_COLUMN[field];
     if (!col) return [];
 
@@ -208,16 +240,49 @@ const suggestOptions = async (field, sel = {}) => {
     return rows;
 };
 
-// STRICT product-level membership: a medicine is in the hospital Formulary only
-// when this exact generic+brand+form+strength combination is a hospital product.
-// Anything else — custom strength, different brand, unknown drug — is new.
+// The nurse's Brand/Form/Strength box, SQL fallback for the seconds before the
+// cache loads. Same contract as catalogCache.suggestCombo: every typed word
+// must appear in the description, narrowed by generic when given.
+const suggestCombo = async (sel = {}) => {
+    const cached = catalogCache.suggest('combo', sel);
+    if (cached) return cached;
+    const words = norm(sel.q).split(/\s+/).filter(Boolean);
+    const gen = norm(sel.generic);
+    if (!gen && words.join('').length < SUGGEST_MIN_Q) return [];
+    const params = [];
+    const where = ["s.description <> ''"];
+    if (gen) { params.push(gen); where.push(`lower(trim(g.generic_name)) = $${params.length}`); }
+    for (const w of words) { params.push(w); where.push(`strpos(lower(s.description), $${params.length}) > 0`); }
+    const { rows } = await pool.query(`
+        SELECT s.description AS value, b.brand_name AS brand, f.form_name AS form, s.label AS strength,
+               s.volume_ml AS "volumeMl", bool_or(s.ihf) AS ihf, bool_or(g.in_pnf) AS pnf,
+               g.generic_name AS "soleGeneric"
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+        WHERE ${where.join(' AND ')}
+        GROUP BY g.generic_name, s.description, b.brand_name, f.form_name, s.label, s.volume_ml
+        ORDER BY lower(s.description), s.description
+        LIMIT ${SUGGEST_LIMIT}
+    `, params);
+    return rows.map((r) => ({ ...r, volumeMl: toNum(r.volumeMl) }));
+};
+
+// STRICT product-level membership: a medicine is in Bizbox only when this
+// exact generic+brand+form+strength combination is a Bizbox product. Anything
+// else — custom strength, different brand, unknown drug — is new.
 // (inHospitalFormulary / findRegistration lived here — each ran findProduct
 // again for one field of the same row. Their only caller, createRx, now calls
 // findProduct once and reads both answers off it.)
 
-// mark a product as part of the hospital Formulary, creating the node when the
-// pharmacy approves something not in the merged catalog at all
-const addToCatalog = async ({ genericName, brandName, formName, strength }) => {
+// mark a product as in Bizbox, creating the node when the pharmacy approves
+// (or an import lists) something not in the merged catalog at all.
+// description: the Bizbox wording; when absent the parts are stitched in
+// Bizbox order (brand strength form) so the column is never empty.
+const addToCatalog = async ({ genericName, brandName, formName, strength, description, registrationNumber, volumeMl, seenAt, skipInvalidate }) => {
+    const stitched = [brandName, strength, formName].map((x) => String(x || '').trim()).filter(Boolean).join(' ');
+    const desc = String(description || '').replace(/\s+/g, ' ').trim() || stitched || null;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -257,16 +322,35 @@ const addToCatalog = async ({ genericName, brandName, formName, strength }) => {
             [formId, strength || '']);
         const strengthId = r.rows[0] && r.rows[0].id;
         if (!strengthId) {
-            await client.query('INSERT INTO strengths (form_id, label, ihf) VALUES ($1, $2, true)', [formId, strength || '']);
+            r = await client.query(`
+                INSERT INTO strengths (form_id, label, ihf, description, registration_number, volume_ml, bizbox_seen_at)
+                VALUES ($1, $2, true, $3, $4, $5, $6) RETURNING id`,
+                [formId, strength || '', desc, registrationNumber || null, volumeMl ?? null, seenAt ?? null]);
         } else {
-            await client.query('UPDATE strengths SET ihf = true WHERE id = $1', [strengthId]);
+            // an import's real wording replaces a stitched description; a
+            // manual add keeps whatever the row already says
+            // seenAt marks an import: its wording is Bizbox's own and replaces
+            // a stitched description. A manual add only fills a blank one.
+            await client.query(`
+                UPDATE strengths SET ihf = true,
+                    description = CASE
+                        WHEN $2::text IS NOT NULL AND ($5::bigint IS NOT NULL OR description IS NULL OR description = '') THEN $2
+                        ELSE description END,
+                    registration_number = COALESCE(registration_number, $3),
+                    volume_ml = COALESCE(volume_ml, $4),
+                    bizbox_seen_at = COALESCE($5, bizbox_seen_at)
+                WHERE id = $1`,
+                [strengthId, desc, registrationNumber || null, volumeMl ?? null, seenAt ?? null]);
         }
+        const finalId = strengthId || r.rows[0].id;
 
         await client.query('COMMIT');
         // the only thing that changes the catalog — refresh this worker's copy
         // and tell the others. After COMMIT on purpose: a rolled-back approval
-        // must not make the siblings re-read for nothing.
-        catalogCache.invalidate();
+        // must not make the siblings re-read for nothing. An import adding a
+        // thousand rows passes skipInvalidate and refreshes once at the end.
+        if (!skipInvalidate) catalogCache.invalidate();
+        return finalId;
     } catch (e) {
         await client.query('ROLLBACK');
         throw e;
@@ -373,6 +457,119 @@ const setStatus = async (reason, key, rec) => {
     return getStatus(reason, key);
 };
 
+// ---------- review remarks ----------
+// one row per remark, never updated — the history IS the audit trail
+const addRemark = async ({ reason, drugKey, remark, note, actor, authorizedBy }) => {
+    const id = newId('rmk');
+    const at = Date.now();
+    await pool.query(`
+        INSERT INTO review_remarks (id, reason, drug_key, remark, note, actor, authorized_by, at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [id, reason, drugKey, remark, note || null, actor || null, authorizedBy || null, at]);
+    return { id, reason, drugKey, remark, note: note || null, actor: actor || null, authorizedBy: authorizedBy || null, at };
+};
+const mapRemark = (r) => ({ id: r.id, reason: r.reason, drugKey: r.drug_key, remark: r.remark, note: r.note, actor: r.actor, authorizedBy: r.authorized_by, at: toNum(r.at) });
+const getRemarks = async (reason, drugKey) => {
+    const { rows } = await pool.query(
+        'SELECT * FROM review_remarks WHERE reason = $1 AND drug_key = $2 ORDER BY at DESC', [reason, drugKey]);
+    return rows.map(mapRemark);
+};
+// every remark, newest first — demand.aggregate() groups them per drug in one
+// pass rather than one query per row
+const getAllRemarks = async () => {
+    const { rows } = await pool.query('SELECT * FROM review_remarks ORDER BY at DESC');
+    return rows.map(mapRemark);
+};
+
+// ---------- catalog: what else exists under this generic (+ brand) ----------
+// For the reviewer deciding "same product, different spelling?" before a
+// drug is added to Bizbox. Bizbox rows first, then a stable A-Z.
+const findSimilarProducts = async ({ generic, brand = '' }) => {
+    const { rows } = await pool.query(`
+        SELECT ${COMBO_COLUMNS}
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+        WHERE lower(trim(g.generic_name)) = lower(trim($1))
+          AND ($2 = '' OR strpos(lower(b.brand_name), lower(trim($2))) > 0 OR b.brand_name = '')
+        ORDER BY s.ihf DESC, lower(b.brand_name), lower(f.form_name), lower(s.label)
+        LIMIT 40
+    `, [generic, brand]);
+    return rows.map(mapCombo);
+};
+
+// ---------- Bizbox imports (the job row IS the progress bar) ----------
+const mapImport = (r) => ({
+    id: r.id, file: r.file, uploadedBy: r.uploaded_by, startedAt: toNum(r.started_at), finishedAt: toNum(r.finished_at),
+    status: r.status, total: r.total, processed: r.processed, summary: r.summary || {}, rows: r.rows || null,
+});
+const createImport = async ({ file, uploadedBy, status, rows, summary }) => {
+    const id = newId('imp');
+    const startedAt = Date.now();
+    await pool.query(`
+        INSERT INTO catalog_imports (id, file, uploaded_by, started_at, status, total, processed, summary, rows)
+        VALUES ($1, $2, $3, $4, $5, 0, 0, $6, $7)
+    `, [id, file, uploadedBy || null, startedAt, status, JSON.stringify(summary || {}), JSON.stringify(rows || null)]);
+    return id;
+};
+const getImport = async (id, { withRows = true } = {}) => {
+    const cols = withRows ? '*' : 'id, file, uploaded_by, started_at, finished_at, status, total, processed, summary';
+    const { rows } = await pool.query(`SELECT ${cols} FROM catalog_imports WHERE id = $1`, [id]);
+    return rows[0] ? mapImport(rows[0]) : null;
+};
+// patch: { status, total, processed, summary, rows, finishedAt } — only the keys given
+const updateImport = async (id, patch) => {
+    const sets = [], params = [id];
+    const put = (col, v) => { params.push(v); sets.push(`${col} = $${params.length}`); };
+    if (patch.status !== undefined) put('status', patch.status);
+    if (patch.total !== undefined) put('total', patch.total);
+    if (patch.processed !== undefined) put('processed', patch.processed);
+    if (patch.summary !== undefined) put('summary', JSON.stringify(patch.summary));
+    if (patch.rows !== undefined) put('rows', JSON.stringify(patch.rows));
+    if (patch.finishedAt !== undefined) put('finished_at', patch.finishedAt);
+    if (!sets.length) return;
+    await pool.query(`UPDATE catalog_imports SET ${sets.join(', ')} WHERE id = $1`, params);
+};
+const listImports = async (limit = 30) => {
+    const { rows } = await pool.query(`
+        SELECT id, file, uploaded_by, started_at, finished_at, status, total, processed, summary
+        FROM catalog_imports ORDER BY started_at DESC LIMIT $1`, [limit]);
+    return rows.map(mapImport);
+};
+
+const exclusionKey = (description) => String(description || '').replace(/\s+/g, ' ').trim().toLowerCase();
+const getExclusions = async () => {
+    const { rows } = await pool.query('SELECT description_key, description, excluded_by, at FROM catalog_import_exclusions ORDER BY lower(description)');
+    return rows.map((r) => ({ key: r.description_key, description: r.description, excludedBy: r.excluded_by, at: toNum(r.at) }));
+};
+const addExclusion = async ({ description, excludedBy }) => {
+    await pool.query(`
+        INSERT INTO catalog_import_exclusions (description_key, description, excluded_by, at)
+        VALUES ($1, $2, $3, $4) ON CONFLICT (description_key) DO NOTHING
+    `, [exclusionKey(description), description, excludedBy || null, Date.now()]);
+};
+const removeExclusion = async (key) => {
+    const { rowCount } = await pool.query('DELETE FROM catalog_import_exclusions WHERE description_key = $1', [key]);
+    return rowCount;
+};
+
+// Bizbox products no import has listed since `since` — the "in the system but
+// missing from this file" list. Reported, never acted on.
+const productsNotSeenSince = async (since, limit = 2000) => {
+    const { rows } = await pool.query(`
+        SELECT ${COMBO_COLUMNS}, s.bizbox_seen_at AS "seenAt"
+        FROM strengths s
+        JOIN forms f ON f.id = s.form_id
+        JOIN brands b ON b.id = f.brand_id
+        JOIN generics g ON g.id = b.generic_id
+        WHERE s.ihf AND (s.bizbox_seen_at IS NULL OR s.bizbox_seen_at < $1)
+        ORDER BY lower(g.generic_name), lower(s.description)
+        LIMIT $2
+    `, [since, limit]);
+    return rows.map((r) => ({ ...mapCombo(r), seenAt: toNum(r.seenAt) }));
+};
+
 // ---------- audit ----------
 const addAudit = async (entry) => {
     const id = newId('aud');
@@ -470,9 +667,12 @@ module.exports = {
     addSystemLog, getSystemLogs, countSystemLogs,
     getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
-    strengthLabel, getGenerics, suggestOptions, findProduct, addToCatalog,
+    strengthLabel, getGenerics, suggestOptions, findProduct, findProductByDescription, getFormNames, addToCatalog,
     addPrescription, getPrescriptions,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange,
     getStatus, setStatus,
+    addRemark, getRemarks, getAllRemarks, findSimilarProducts,
+    createImport, getImport, updateImport, listImports,
+    exclusionKey, getExclusions, addExclusion, removeExclusion, productsNotSeenSince,
     addAudit, getAudit,
 };

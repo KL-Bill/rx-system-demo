@@ -30,6 +30,10 @@ const suggest = async (req, res) => {
         });
     } catch (err) { return handle(res, err); }
 };
+const forms = async (req, res) => {
+    try { return res.json({ success: true, ...(await rxModel.forms()) }); }
+    catch (err) { return handle(res, err); }
+};
 const product = async (req, res) => {
     try {
         const q = req.query;
@@ -59,4 +63,4 @@ const create = async (req, res) => {
     }
 };
 
-module.exports = { stations, doctors, suggest, product, create };
+module.exports = { stations, doctors, suggest, forms, product, create };

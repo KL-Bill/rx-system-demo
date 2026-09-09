@@ -25,6 +25,12 @@ CREATE TABLE forms (
   form_name TEXT NOT NULL DEFAULT ''
 );
 
+-- ihf = "in Bizbox" (the hospital's dispensing system; the UI says Bizbox, the
+-- column keeps its original name). description is the Bizbox wording of the
+-- product — "BIOGESIC 500MG TABLET" — the real text once a Bizbox import has
+-- seen it, else brand + strength + form stitched in that order. It is what the
+-- nurse's Brand/Form/Strength box searches and shows; brand/form/strength stay
+-- the structured fields the slip and the demand grouping use.
 CREATE TABLE strengths (
   id SERIAL PRIMARY KEY,
   form_id INTEGER NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
@@ -33,7 +39,9 @@ CREATE TABLE strengths (
   classification TEXT,
   ihf BOOLEAN NOT NULL DEFAULT false,
   volume_ml NUMERIC,
-  reg_approx BOOLEAN
+  reg_approx BOOLEAN,
+  description TEXT,
+  bizbox_seen_at BIGINT
 );
 
 CREATE INDEX idx_brands_generic ON brands (generic_id);
@@ -48,6 +56,7 @@ CREATE INDEX idx_generics_name_trim ON generics (lower(trim(generic_name)));
 CREATE INDEX idx_brands_name_trim ON brands (lower(trim(brand_name)));
 CREATE INDEX idx_forms_name_trim ON forms (lower(trim(form_name)));
 CREATE INDEX idx_strengths_label_trim ON strengths (lower(trim(label)));
+CREATE INDEX idx_strengths_description_trim ON strengths (lower(trim(description)));
 
 -- ---------- users / stations / doctors ----------
 -- ids keep the app's existing "prefix-uuid8" text-id scheme (see newId() in
@@ -107,6 +116,59 @@ CREATE TABLE review_status (
   actor TEXT,
   authorized_by TEXT,
   PRIMARY KEY (reason, drug_key)
+);
+
+-- ---------- review remarks ----------
+-- the pharmacy's explanation for why a reviewed drug is still open (or how it
+-- was closed): one row per remark, never overwritten — auditors read the
+-- history. remark is a preset key (available_in_bizbox, ordered, for_order,
+-- other_brand_only, under_therapeutics, other); note is free text.
+
+CREATE TABLE review_remarks (
+  id TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  drug_key TEXT NOT NULL,
+  remark TEXT NOT NULL,
+  note TEXT,
+  actor TEXT,
+  authorized_by TEXT,
+  at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_review_remarks_drug ON review_remarks (reason, drug_key, at DESC);
+
+-- ---------- Bizbox imports ----------
+-- One row per uploaded Bizbox export. The row IS the job: the analyze and
+-- apply phases update processed/total as they go and the page polls it — the
+-- app runs several workers, so progress cannot live in one process's memory.
+-- rows keeps every parsed line and the reviewer's decision on it, which is the
+-- audit trail of what an import changed and who said so.
+-- status: analyzing | awaiting_review | applying | done | cancelled | failed
+
+CREATE TABLE catalog_imports (
+  id TEXT PRIMARY KEY,
+  file TEXT NOT NULL,
+  uploaded_by TEXT,
+  started_at BIGINT NOT NULL,
+  finished_at BIGINT,
+  status TEXT NOT NULL,
+  total INTEGER NOT NULL DEFAULT 0,
+  processed INTEGER NOT NULL DEFAULT 0,
+  summary JSONB,
+  rows JSONB
+);
+
+CREATE INDEX idx_catalog_imports_started ON catalog_imports (started_at DESC);
+
+-- descriptions a reviewer excluded with "remember for next time" — non-drugs
+-- the export carries (NITROGEN USE, MEDEXPRESS PAYABLE). Keyed on the
+-- lower-cased, whitespace-collapsed text so the next import skips them.
+
+CREATE TABLE catalog_import_exclusions (
+  description_key TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  excluded_by TEXT,
+  at BIGINT NOT NULL
 );
 
 -- ---------- audit log ----------

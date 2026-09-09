@@ -41,10 +41,16 @@
             $('pane-' + btn.dataset.tab).style.display = '';
             ({
                 syslog: loadLogs, audit: loadAudit, accounts: loadUsers,
-                prescriptions: loadPrescriptions, backups: loadBackups,
+                prescriptions: loadPrescriptions, backups: loadBackups, medicines: loadMedicines,
             })[btn.dataset.tab]();
         };
     });
+
+    // ---------- Medicines: the Bizbox import (js/bizbox-import.js), mounted once ----------
+    let importUi = null;
+    function loadMedicines() {
+        if (!importUi) importUi = BizboxImport.mount($('importRoot'));
+    }
 
     // ---------- health strip ----------
     async function loadHealth() {

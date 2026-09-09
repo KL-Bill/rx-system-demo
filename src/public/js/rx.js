@@ -5,7 +5,8 @@
     mountRail({ mode: 'nurse', active: 'rx' });
 
     const $ = (id) => document.getElementById(id);
-    const items = [];   // { genericName, brandName, formName, strength, quantity, sig, isNew, inPnf, outOfStock }
+    // { genericName, brandName, formName, strength, description, volumeMl, quantity, sig, isNew, inPnf, outOfStock }
+    const items = [];
     let savedRxId = null, dragFrom = null, masterDoctors = [];
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
 
@@ -66,196 +67,23 @@
         localStorage.setItem('rx_doctors', JSON.stringify(localDoctors));
     }
 
-    // ----- cascading builder (top-down: Generic -> Brand -> Form -> Strength) -----
-    // Searching happens on the server (/api/rx/suggest). This page used to pull
-    // the whole catalog — ~34k combinations, 5.2 MB — and filter it here, which
-    // meant every keystroke in Brand rebuilt and re-sorted 24k names on the main
-    // thread. Typing lagged and holding backspace locked the tab up hard enough
-    // that the only way out was closing the browser. Now each keystroke is
-    // debounced, superseded by the next one, and answered with at most 50 rows.
-    const FIELDS = ['generic', 'brand', 'form', 'strength'];
-    // a field is narrowed only by the fields above it in the cascade
-    const PARENTS = { generic: [], brand: ['generic'], form: ['generic', 'brand'], strength: ['generic', 'brand', 'form'] };
+    // the medicine widget (search, split, Bizbox check) lives in js/medwidget.js
+    const { create: createWidget, fetchProduct, missingField } = MedWidget;
 
-    const DEBOUNCE_MS = 120;
-    const MIN_Q = 2;
-    // Mirrors db.suggestWorthRunning() on the server. A "contains" search cannot
-    // use an index, so an empty box asks Postgres to read the whole catalog —
-    // and resetBuilder() focuses Generic after every Add, which fired exactly
-    // that on the way into the next medicine. An empty box still earns a query
-    // when a parent narrows it ("every form this brand comes in"); otherwise
-    // the nurse types two letters first.
-    const worthSearching = (field, s) => s[field].length >= MIN_Q || PARENTS[field].some((p) => s[p]);
-    const CACHE_MAX = 200;          // backspacing walks back through queries already answered
+    const builder = createWidget({ p: 'f-', sg: 'sg-', statusId: 'mbStatus', noteId: 'mbNote', splitNoteId: 'f-splitNote' });
+    const editor = createWidget({ p: 'e-', sg: 'esg-', statusId: 'edStatus', noteId: 'edNote', splitNoteId: 'e-splitNote', clearsBelow: false });
 
-    const optCache = new Map();
-    function remember(cache, key, value) {
-        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-        cache.set(key, value);
-        return value;
-    }
-
-    // in-flight requests for a field are aborted by the next keystroke, so a
-    // slow reply can never repaint over a newer one. `aborts` belongs to the
-    // cascade that asked: the Add panel and the edit dialog must never cancel
-    // each other's lookups.
-    async function fetchOptions(field, s, aborts) {
-        const params = new URLSearchParams({ field, q: s[field] });
-        PARENTS[field].forEach((p) => { if (s[p]) params.set(p, s[p]); });
-        const key = params.toString();
-        if (optCache.has(key)) return optCache.get(key);
-        if (aborts[field]) aborts[field].abort();
-        aborts[field] = new AbortController();
-        const res = await api(`/api/rx/suggest?${key}`, { signal: aborts[field].signal });
-        if (!res.ok) return [];
-        return remember(optCache, key, res.data.options || []);
-    }
-
-    // -> { ok, product } — ok:false means we could not reach the server. Never
-    // treat that as "not in the Formulary"; that is a clinical claim.
-    // Deliberately NOT cached, unlike the suggestions above. This is the
-    // Formulary answer — a clinical claim — so it is asked fresh every time. The
-    // browser used to remember it for the life of the page, which meant a
-    // medicine approved by the pharmacy mid-shift kept reading "not in the
-    // Formulary" off a note taken before the approval, until someone reloaded.
-    // The cost is a handful of exact, indexed lookups per medicine (this only
-    // fires once generic, form and strength are all filled), which is affordable
-    // now that autocomplete no longer touches the database at all.
-    async function fetchProduct(s) {
-        const params = new URLSearchParams({ generic: s.generic, brand: s.brand, form: s.form, strength: s.strength });
-        const res = await api(`/api/rx/product?${params}`);
-        if (!res.ok) return { ok: false, product: null };
-        return { ok: true, product: res.data.product || null };
-    }
-
-    // Two of these exist — the Add panel and the edit dialog. They are the same
-    // widget over different inputs, so the search, the debounce, the abort
-    // handling and the Formulary line are written once here, and the two
-    // instances differ only by which element ids they drive.
-    //   ids/sug: field -> element id of the input / of its suggestion box
-    //   clearsBelow: touching a field empties the ones under it. Right when you
-    //     are narrowing a medicine down from nothing, wrong when you are
-    //     correcting one that already exists — changing the brand there would
-    //     wipe the form and strength the nurse came in with, which is the very
-    //     retyping the edit dialog is meant to save. The dialog leaves them be
-    //     and lets the Formulary line (and the check on Save) judge the result.
-    function createCascade({ ids, sug, statusId, noteId, volId, clearsBelow = true }) {
-        const timers = {}, seqs = {}, aborts = {};
-        let statusSeq = 0;
-        const $f = (field) => $(ids[field]);
-        const values = () => {
-            const v = {};
-            FIELDS.forEach((f) => { v[f] = $f(f).value.trim(); });
-            return v;
-        };
-        const clearBelow = (field) => {
-            if (!clearsBelow) return;
-            FIELDS.slice(FIELDS.indexOf(field) + 1).forEach((f) => { $f(f).value = ''; });
-        };
-
-        function showSuggest(field) {
-            clearTimeout(timers[field]);
-            timers[field] = setTimeout(() => runSuggest(field), DEBOUNCE_MS);
-        }
-        async function runSuggest(field) {
-            const box = $(sug[field]);
-            const s = values();
-            // claim the sequence even when we are not going to search: a request
-            // fired at two letters must not land after a backspace drops us below
-            // the threshold and repaint the box with rows for a query that is gone
-            const mine = seqs[field] = (seqs[field] || 0) + 1;
-            if (!worthSearching(field, s)) {
-                if (aborts[field]) aborts[field].abort();
-                box.innerHTML = `<div class="opt hint">Type ${MIN_Q} letters to search…</div>`;
-                box.style.display = document.activeElement === $f(field) ? 'block' : 'none';
-                return;
-            }
-            let opts;
-            try { opts = await fetchOptions(field, s, aborts); }
-            catch { return; }                                   // aborted or offline: leave the list alone
-            if (mine !== seqs[field]) return;                   // a newer keystroke already won
-            if (document.activeElement !== $f(field)) { box.style.display = 'none'; return; }
-            if (!opts.length) { box.style.display = 'none'; return; }
-            box.innerHTML = opts.map((o, i) => `<div class="opt" data-i="${i}"><span>${escapeHtml(o.value)}</span>${o.pnf ? '<span class="badge navy" title="In the Philippine National Formulary">PNF</span> ' : ''}<span class="badge ${o.ihf ? 'green' : 'amber'}" title="${o.ihf ? 'In hospital Formulary' : 'Not in hospital Formulary'}">${o.ihf ? '✓' : '✗'}</span></div>`).join('');
-            box.style.display = 'block';
-            box.querySelectorAll('.opt').forEach((el) => {
-                el.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    const o = opts[Number(el.dataset.i)];
-                    $f(field).value = o.value;
-                    box.style.display = 'none';
-                    clearBelow(field);
-                    // a brand that belongs to exactly one generic fills the generic in
-                    if (field === 'brand' && o.soleGeneric) $f('generic').value = o.soleGeneric;
-                    updateStatus();
-                });
-            });
-        }
-
-        async function updateStatus() {
-            const s = values(); const st = $(statusId); const note = $(noteId);
-            const mine = ++statusSeq;
-            note.style.display = 'none';
-            if (!s.generic) { st.textContent = ''; st.className = 'mb-status'; return; }
-            if (!(s.generic && s.form && s.strength)) { st.textContent = 'fill generic, form & strength'; st.className = 'mb-status muted'; return; }
-
-            const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
-            if (mine !== statusSeq) return;                     // the fields moved on while we asked
-            if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
-
-            // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
-            if (c && c.volumeMl != null && volId && !$(volId).value) $(volId).value = c.volumeMl;
-            const bits = [];
-            if (c && c.inFormulary) {
-                st.textContent = '✓ In the hospital Formulary'; st.className = 'mb-status ok';
-                bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
-            } else {
-                st.textContent = '✗ NOT in the hospital Formulary'; st.className = 'mb-status new';
-                if (c) bits.push(c.inPnf ? 'In the PNF.' : 'Not in the PNF.');
-            }
-            if (c && c.registrationNumber) bits.push(`Reg. No. ${c.registrationNumber}`);
-            if (bits.length) { note.textContent = bits.join(' '); note.style.display = 'block'; }
-        }
-
-        FIELDS.forEach((field) => {
-            const inp = $f(field);
-            inp.addEventListener('input', () => {
-                clearBelow(field);
-                showSuggest(field);
-                clearTimeout(timers.status);
-                timers.status = setTimeout(updateStatus, DEBOUNCE_MS);
-            });
-            inp.addEventListener('focus', () => showSuggest(field));
-            inp.addEventListener('blur', () => setTimeout(() => { $(sug[field]).style.display = 'none'; }, 150));
-        });
-
-        return {
-            values,
-            setValues: (v) => FIELDS.forEach((f) => { $f(f).value = v[f] || ''; }),
-            hideBoxes: () => FIELDS.forEach((f) => { $(sug[f]).style.display = 'none'; }),
-            focus: (field) => $f(field).focus(),
-            updateStatus,
-        };
-    }
-
-    const idsFor = (prefix) => Object.fromEntries(FIELDS.map((f) => [f, prefix + f]));
-    const builder = createCascade({ ids: idsFor('f-'), sug: idsFor('sg-'), statusId: 'mbStatus', noteId: 'mbNote', volId: 'f-vol' });
-    const editor = createCascade({ ids: idsFor('e-'), sug: idsFor('esg-'), statusId: 'edStatus', noteId: 'edNote', volId: 'e-vol', clearsBelow: false });
-
-    function resetBuilder() {
-        builder.setValues({});
-        $('f-qty').value = '1'; $('f-vol').value = ''; $('f-sig').value = '';
-        builder.updateStatus(); builder.focus('generic');
-    }
+    function resetBuilder() { builder.reset(); builder.focus('generic'); }
     $('mbClear').onclick = resetBuilder;
     $('mbAdd').onclick = async () => {
-        const s = builder.values(); const qty = Number($('f-qty').value) || 1;
-        const vol = Number($('f-vol').value) > 0 ? Number($('f-vol').value) : null;
-        if (!s.generic || !s.form || !s.strength) {
-            const miss = ['generic', 'form', 'strength'].find((f) => !s[f]);
+        const s = builder.values();
+        const miss = missingField(builder, s);
+        if (miss) {
             await showDialog({
                 kind: 'warn', title: 'Missing details',
-                message: 'Enter at least generic, form, and strength before adding the medicine.',
+                message: miss === 'generic' ? 'Enter the generic name first.'
+                    : miss === 'combo' ? 'Pick the brand, form and strength from the list — or type the medicine to add one Bizbox does not have.'
+                    : 'Enter at least the form and strength before adding the medicine.',
             });
             builder.focus(miss);        // the caret goes to the first box actually missing
             return;
@@ -265,37 +93,39 @@
         const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
         btn.disabled = false;
         // adding on a failed lookup would silently flag a stocked medicine as
-        // not-in-the-Formulary, so refuse instead of guessing
+        // not-in-Bizbox, so refuse instead of guessing
         if (!ok) {
             await showDialog({
                 kind: 'danger', title: 'Cannot reach the server',
-                message: 'The Formulary could not be checked, so the medicine was not added. Try again in a moment.',
+                message: 'Bizbox could not be checked, so the medicine was not added. Try again in a moment.',
             });
             return;
         }
-
-        addItem({ genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength, volumeMl: vol, quantity: qty, sig: $('f-sig').value.trim(), isNew: !(c && c.inFormulary), inPnf: c ? !!c.inPnf : false, outOfStock: false });
+        const inBizbox = !!(c && c.inFormulary);
+        addItem({
+            genericName: s.generic, brandName: s.brand, formName: s.form, strength: s.strength,
+            description: (c && c.description) || s.description, fromCatalog: !!c,
+            volumeMl: s.volumeMl, quantity: s.quantity, sig: s.sig,
+            isNew: !inBizbox, inPnf: c ? !!c.inPnf : false,
+            // "out of stock" is a statement about a medicine Bizbox carries
+            outOfStock: inBizbox && s.outOfStock,
+        });
         resetBuilder();
     };
 
     // ----- edit a medicine already on the list -----
     // Correcting a brand or a strength used to mean removing the line and
-    // building it again from scratch. This dialog is the same cascade over its
-    // own inputs, so an edit is searched and checked against the Formulary
-    // exactly the way an Add is.
+    // building it again from scratch. This dialog is the same widget over its
+    // own inputs, so an edit is searched and checked against Bizbox exactly
+    // the way an Add is.
     const edDlg = $('medEditDlg');
     let editIndex = -1;
 
     function openEditor(i) {
-        const it = items[i];
         editIndex = i;
-        editor.setValues({ generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength });
-        $('e-vol').value = it.volumeMl == null ? '' : it.volumeMl;
-        $('e-qty').value = it.quantity;
-        $('e-sig').value = it.sig || '';
         $('edErr').classList.remove('show');
         edDlg.showModal();
-        editor.updateStatus();
+        editor.load(items[i]);
     }
 
     function editError(msg, focusField) {
@@ -309,8 +139,9 @@
     $('edSave').onclick = async () => {
         const s = editor.values();
         $('edErr').classList.remove('show');
-        if (!s.generic || !s.form || !s.strength) {
-            editError('Enter at least generic, form, and strength.', ['generic', 'form', 'strength'].find((f) => !s[f]));
+        const miss = missingField(editor, s);
+        if (miss) {
+            editError(miss === 'generic' ? 'Enter the generic name.' : miss === 'combo' ? 'Pick the brand, form and strength, or type the medicine.' : 'Enter at least the form and strength.', miss);
             return;
         }
 
@@ -318,21 +149,18 @@
         const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
         btn.disabled = false;
         // the same refusal as Add, for the same reason: carrying the old
-        // not-in-the-Formulary flag onto a medicine that has just been edited
-        // would print a claim nobody checked. The dialog stays open.
-        if (!ok) { editError('Could not reach the server to check the Formulary. Try again in a moment.'); return; }
+        // not-in-Bizbox flag onto a medicine that has just been edited would
+        // print a claim nobody checked. The dialog stays open.
+        if (!ok) { editError('Could not reach the server to check Bizbox. Try again in a moment.'); return; }
 
         const it = items[editIndex];
+        const inBizbox = !!(c && c.inFormulary);
         it.genericName = s.generic; it.brandName = s.brand; it.formName = s.form; it.strength = s.strength;
-        it.volumeMl = Number($('e-vol').value) > 0 ? Number($('e-vol').value) : null;
-        it.quantity = Number($('e-qty').value) || 1;
-        it.sig = $('e-sig').value.trim();
-        it.isNew = !(c && c.inFormulary);
+        it.description = (c && c.description) || s.description; it.fromCatalog = !!c;
+        it.volumeMl = s.volumeMl; it.quantity = s.quantity; it.sig = s.sig;
+        it.isNew = !inBizbox;
         it.inPnf = c ? !!c.inPnf : false;
-        // "no stock" is a statement about a medicine the Formulary carries; if
-        // the edit turned this into one it does not, the flag no longer means
-        // anything (render() drops the toggle for those rows too)
-        if (it.isNew) it.outOfStock = false;
+        it.outOfStock = inBizbox && s.outOfStock;
 
         savedRxId = null;               // what was recorded no longer matches the list
         edDlg.close();
@@ -358,17 +186,14 @@
         $('items-empty').style.display = items.length ? 'none' : 'block';
         list.innerHTML = items.map((it, i) => {
             const cls = it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : '');
-            const tags = (it.isNew ? '<span class="badge amber">new</span> <span class="np-note">Not in the Formulary</span>' : '')
-                + (it.outOfStock ? '<span class="np-note">no / not enough stock</span>' : '')
+            const tags = (it.isNew ? ' <span class="badge amber">Not in Bizbox</span>' : ' <span class="badge green">In Bizbox</span>')
+                + (it.outOfStock ? ' <span class="np-note">out of stock</span>' : '')
                 + (it.inPnf ? ' <span class="badge navy" title="In the Philippine National Formulary">PNF</span>' : '');
-            const toggle = it.isNew ? '' :
-                `<label class="stock-toggle"><input type="checkbox" data-stock="${i}" ${it.outOfStock ? 'checked' : ''}> No stock</label>`;
             return `<li data-i="${i}">
                 <span class="grip" draggable="true" title="Drag to reorder">⠿</span>
-                <span class="nm ${cls}">${escapeHtml(medLabel(it))} ${tags}
+                <span class="nm ${cls}">${escapeHtml(medLabel(it))}${tags}
                     <input class="sig" type="text" data-sig="${i}" value="${escapeHtml(it.sig || '')}" placeholder="Sig — e.g. 1 tab TID for pain">
                 </span>
-                ${toggle}
                 <input class="qty" type="number" min="1" value="${it.quantity}" data-i="${i}">
                 <button class="edit" type="button" data-edit="${i}" title="Edit this medicine">Edit</button>
                 <button class="x" data-x="${i}">✕</button>
@@ -392,9 +217,6 @@
         // rebuilding the list would drop focus on every keystroke.
         list.querySelectorAll('input.sig').forEach((inp) => {
             inp.addEventListener('input', () => { items[Number(inp.dataset.sig)].sig = inp.value; savedRxId = null; renderPreview(); });
-        });
-        list.querySelectorAll('input[data-stock]').forEach((cb) => {
-            cb.addEventListener('change', () => { items[Number(cb.dataset.stock)].outOfStock = cb.checked; savedRxId = null; render(); });
         });
         list.querySelectorAll('button.edit').forEach((b) => { b.addEventListener('click', () => openEditor(Number(b.dataset.edit))); });
         list.querySelectorAll('button.x').forEach((b) => { b.addEventListener('click', () => removeItem(Number(b.dataset.x))); });
@@ -450,6 +272,9 @@
     }
     window.addEventListener('afterprint', restoreFocusAfterPrint);
 
+    // The prescription is recorded on the first Print, not on Add and not on
+    // New patient: a line being built is not a prescription yet, and a
+    // reprint of an unchanged list must not be counted twice.
     $('printBtn').onclick = async () => {
         if (!items.length) {
             await showDialog({
@@ -464,7 +289,10 @@
                 stationId: stationSel.value,
                 patient: $('patient').value.trim(), address: $('address').value.trim(), age: $('age').value.trim(), sex: $('sex').value.trim(),
                 doctor: { name: $('doctor').value.trim(), license: $('docLicense').value.trim(), ptr: $('docPtr').value.trim(), s2: $('docS2').value.trim() },
-                items: items.map((it) => ({ genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength, volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock })),
+                items: items.map((it) => ({
+                    genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength,
+                    description: it.description || '', volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock,
+                })),
             };
             const res = await api('/api/rx', { body: payload });
             if (!res.ok) {

@@ -51,4 +51,26 @@ const audit = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
-module.exports = { review, detail, status, statusBulk, audit, prescriptions };
+const remarks = async (req, res) => {
+    try { return res.json({ success: true, presets: pharmacy.REMARKS, remarks: await pharmacy.listRemarks(req.query.key, req.query.reason) }); }
+    catch (err) { return handle(res, err); }
+};
+
+const addRemark = async (req, res) => {
+    try {
+        const { authorizerPassword, ...body } = req.body;
+        return res.json({ success: true, ...(await pharmacy.addRemark(body, req.user, authorizerPassword)) });
+    } catch (err) { return handle(res, err); }
+};
+
+const similar = async (req, res) => {
+    try { return res.json({ success: true, products: await pharmacy.similarProducts({ generic: req.query.generic, brand: req.query.brand }) }); }
+    catch (err) { return handle(res, err); }
+};
+
+const addCatalog = async (req, res) => {
+    try { return res.json({ success: true, ...(await pharmacy.addCatalogProduct(req.body, req.user)) }); }
+    catch (err) { return handle(res, err); }
+};
+
+module.exports = { review, detail, status, statusBulk, audit, prescriptions, remarks, addRemark, similar, addCatalog };

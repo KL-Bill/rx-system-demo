@@ -12,11 +12,11 @@
         <div class="appbar">
             <div>
                 <h1>Pharmacy Review</h1>
-                <p class="sub" style="margin:0">Drugs the main system wouldn't release — plus anyone bypassing it.</p>
+                <p class="sub" style="margin:0">Medicines Bizbox would not release — plus anyone bypassing it.</p>
             </div>
             <div class="kpis-inline">
                 <div class="kpi-i"><div class="n" id="kp-total">0</div><div class="l">To review</div></div>
-                <div class="kpi-i"><div class="n" id="kp-nif">0</div><div class="l">Not in Formulary</div></div>
+                <div class="kpi-i"><div class="n" id="kp-nif">0</div><div class="l">Not in Bizbox</div></div>
                 <div class="kpi-i"><div class="n" id="kp-oos">0</div><div class="l">Out of stock</div></div>
                 <div class="kpi-i"><div class="n warn" id="kp-anom">0</div><div class="l">Anomalies</div></div>
                 <div class="kpi-i"><div class="n" id="kp-resolved">0</div><div class="l">Resolved</div></div>
@@ -25,12 +25,14 @@
 
         <div class="toolbar">
             <div class="tabs" id="tabs"></div>
-            <div class="tb-search"><input id="search" placeholder="Search medicine…"></div>
-            <div class="chips" id="filters"></div>
+            <div class="tb-search"><input id="search" placeholder="Search generic, brand, form, strength…"></div>
             <div class="tb-right">
-                <button class="ghost sm" id="filtersBtn">Filters</button>
+                <button class="sm" id="addMedBtn" type="button" style="display:none">+ Add Medicine</button>
             </div>
         </div>
+
+        <!-- Notion-style filters: chips above the table, see js/filterbar.js -->
+        <div id="filterbar"></div>
 
         <div class="content">
             <div class="result-count" id="count"></div>
@@ -50,34 +52,7 @@
         </div>
     </div>
 
-    <!-- right filter drawer -->
-    <aside class="drawer" id="drawer">
-        <div class="drawer-head">
-            <h3>Filters</h3>
-            <button class="ghost sm" data-close>✕</button>
-        </div>
-        <div class="drawer-body">
-            <div class="drawer-sec">
-                <h4><span class="n">1</span> Department</h4>
-                <select id="department"><option value="all">All departments (overall)</option></select>
-            </div>
-            <div class="drawer-sec">
-                <h4><span class="n">2</span> Status</h4>
-                <select id="statusFilter">
-                    <option value="all">Any status</option>
-                    <option value="pending">Pending</option>
-                    <option value="under_therapeutics">Under Therapeutics</option>
-                    <option value="added_to_formulary">Added to Formulary</option>
-                    <option value="restocked">Restocked</option>
-                </select>
-            </div>
-        </div>
-        <div class="drawer-foot">
-            <button class="ghost" id="clearFilters">Clear all</button>
-        </div>
-    </aside>
-
-    <!-- right detail drawer (replaces the old modal) -->
+    <!-- right detail drawer -->
     <aside class="drawer detail-drawer" id="detail">
         <div class="dd-head">
             <div class="dd-actions" id="dActions"></div>
@@ -95,32 +70,45 @@
 
         <div class="dd-body">
             <div class="dd-stats">
-                <div class="dd-stat"><div class="n" id="d-rx">0</div><div class="l">Prescriptions</div></div>
-                <div class="dd-stat"><div class="n" id="d-vol">0</div><div class="l">Total qty</div></div>
+                <div class="dd-stat"><div class="n" id="d-rx">0</div><div class="l"># RX</div></div>
+                <div class="dd-stat"><div class="n" id="d-vol">0</div><div class="l"># Prescribed</div></div>
                 <div class="dd-stat"><div class="n" id="d-dept">0</div><div class="l">Departments</div></div>
+            </div>
+
+            <div id="dAuthWrap" style="display:none">
+                <div class="warnbox">Staff accounts need an admin password to update status or add a remark.</div>
+                <label>Authorizing password</label>
+                <input id="dAuth" type="password" autocomplete="off">
+            </div>
+            <div class="errbox" id="dErr"></div>
+
+            <!-- the pharmacy's explanation for why this is still open — or how
+                 it was closed. A history, never overwritten. -->
+            <div class="dd-sec">
+                <h4>Remarks</h4>
+                <div id="dRemarks" class="remarks"></div>
+                <div class="remark-form">
+                    <label for="rmkPreset">Add a remark</label>
+                    <select id="rmkPreset"></select>
+                    <textarea id="rmkNote" placeholder="Note (optional) — e.g. PO #1234, expected next week"></textarea>
+                    <div><button class="sm" id="rmkAdd" type="button">Add remark</button></div>
+                </div>
             </div>
 
             <div class="dd-sec">
                 <h4>Who prescribed it</h4>
-                <table><thead><tr><th>Doctor</th><th>Rx</th><th>Qty</th><th>Last prescribed</th></tr></thead><tbody id="dRows"></tbody></table>
+                <table><thead><tr><th>Doctor</th><th># RX</th><th># Prescribed</th><th>Last prescribed</th></tr></thead><tbody id="dRows"></tbody></table>
             </div>
 
             <div class="dd-sec">
                 <h4>By department</h4>
-                <table><thead><tr><th>Department</th><th>Rx</th><th>Qty</th></tr></thead><tbody id="dDept"></tbody></table>
+                <table><thead><tr><th>Department</th><th># RX</th><th># Prescribed</th></tr></thead><tbody id="dDept"></tbody></table>
             </div>
 
             <div class="dd-sec">
                 <h4>General details</h4>
                 <div class="dd-grid" id="dGrid"></div>
             </div>
-
-            <div id="dAuthWrap" style="display:none">
-                <div class="warnbox">Staff accounts need an admin password to update status.</div>
-                <label>Authorizing password</label>
-                <input id="dAuth" type="password">
-            </div>
-            <div class="errbox" id="dErr"></div>
         </div>
     </aside>
 
@@ -139,8 +127,66 @@
         </div>
     </div>
 
+    <!-- ===== "Available in Bizbox" — the careful resolve: what happens, review the medicine, confirm ===== -->
+    <dialog id="resolveDlg" class="dlg dlg-wide" aria-labelledby="rvTitle">
+        <div class="dlg-head">
+            <h3 class="dlg-title" id="rvTitle">Available in Bizbox</h3>
+            <span id="rvStatus" class="mb-status"></span>
+        </div>
+        <div class="steps" id="rvSteps"></div>
+        <div class="step-pane" data-step="1">
+            <div class="infobox" id="rvWhat"></div>
+        </div>
+        <div class="step-pane" data-step="2">
+            <p class="sub" style="margin:0 0 10px">Check the medicine exactly as it will be added to Bizbox. Fix a typo here, or pick the product Bizbox already lists if this is the same one under another spelling.</p>
+            <div id="rvWidget"></div>
+            <div class="mb-note" id="rvNote" style="display:none"></div>
+            <div class="similar" id="rvSimilar"></div>
+        </div>
+        <div class="step-pane" data-step="3">
+            <div class="summary-grid" id="rvSummary"></div>
+            <label for="rvNoteText">Note (optional)</label>
+            <textarea id="rvNoteText" class="rmk-textarea" placeholder="e.g. was under a different brand name"></textarea>
+            <div id="rvAuthWrap" style="display:none">
+                <div class="warnbox">Staff accounts need an admin password.</div>
+                <label for="rvAuth">Authorizing password</label>
+                <input id="rvAuth" type="password" autocomplete="off">
+            </div>
+        </div>
+        <div class="errbox" id="rvErr"></div>
+        <div class="dlg-actions">
+            <button class="ghost" id="rvCancel" type="button">Cancel</button>
+            <span style="flex:1"></span>
+            <button class="ghost" id="rvBack" type="button">Back</button>
+            <button id="rvNext" type="button">Next</button>
+        </div>
+    </dialog>
+
+    <!-- ===== Add Medicine (admin): Bizbox gained a product the system still calls "not in Bizbox" ===== -->
+    <dialog id="addMedDlg" class="dlg dlg-wide" aria-labelledby="amTitle">
+        <div class="dlg-head">
+            <h3 class="dlg-title" id="amTitle">Add Medicine to Bizbox</h3>
+            <span id="amStatus" class="mb-status"></span>
+        </div>
+        <p class="sub" style="margin:0 0 12px">Search the list first — most products already exist and only need to be marked as in Bizbox. Type something new only when Bizbox carries a product the list has never seen.</p>
+        <div id="amWidget"></div>
+        <div class="mb-row" style="margin-top:10px">
+            <div class="search-wrap"><label for="a-reg">Registration No. (optional)</label><input id="a-reg" autocomplete="off" placeholder="DR-XY12345"></div>
+        </div>
+        <div class="mb-note" id="amNote" style="display:none"></div>
+        <div class="similar" id="amSimilar"></div>
+        <div class="errbox" id="amErr"></div>
+        <div class="dlg-actions">
+            <button class="ghost" id="amCancel" type="button">Cancel</button>
+            <button id="amSave" type="button">Add to Bizbox</button>
+        </div>
+    </dialog>
+
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
+    <script src="/js/split.js"></script>
+    <script src="/js/medwidget.js"></script>
+    <script src="/js/filterbar.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>
 </html>

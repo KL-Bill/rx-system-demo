@@ -5,6 +5,12 @@ const labelOf = (it) => {
     return `${it.genericName}${brand} ${it.formName} ${it.strength}`.replace(/\s+/g, ' ').trim();
 };
 
+// The "Brand/Form/Strength" column: the Bizbox wording when the item was
+// picked from the catalog (it.description), else the same parts stitched in
+// Bizbox order — brand, strength, form — e.g. "BIOGESIC 500MG TABLET".
+const descriptionOf = (it) => it.description
+    || [it.brandName, it.strength, it.formName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
 // reasons a medicine can land on one of these prescriptions
 const PROBLEM = ['not_in_formulary', 'out_of_stock'];
 const ALL_REASONS = [...PROBLEM, 'normal'];
@@ -35,6 +41,18 @@ const statusInfo = async (reason, key) => {
     return { status, statusDate: rec ? rec.statusDate : null, resolved: status === 'added_to_formulary' || status === 'restocked' };
 };
 
+// the pharmacy's remarks, grouped per reason::key, newest first
+const remarksByDrug = async () => {
+    const map = new Map();
+    for (const r of await db.getAllRemarks()) {
+        const k = r.reason + '::' + r.drugKey;
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(r);
+    }
+    return map;
+};
+const remarkInfo = (list) => ({ remarks: list || [], lastRemark: (list && list[0]) || null });
+
 // NOTE: `volume` here means TOTAL QUANTITY PRESCRIBED — a count of units, not
 // millilitres. A liquid medicine also has a real volume (item.volumeMl, the mL
 // to dispense) and the two are completely different numbers. Every screen
@@ -60,7 +78,7 @@ async function aggregate({ reason, from, to, department } = {}) {
         let g = groups.get(gk);
         if (!g) {
             g = {
-                key, reason: it.reason, label: labelOf(it),
+                key, reason: it.reason, label: labelOf(it), description: descriptionOf(it),
                 generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength,
                 registrationNumber: it.registrationNumber || null,
                 prescriptions: 0, volume: 0, departments: new Set(), doctors: new Set(),
@@ -76,8 +94,9 @@ async function aggregate({ reason, from, to, department } = {}) {
         tally(g.byDoctor, rx.doctor && rx.doctor.name, it.quantity, rx.createdAt);
         g.lastDate = Math.max(g.lastDate, rx.createdAt);
     }
+    const remarks = await remarksByDrug();
     const results = await Promise.all([...groups.values()].map(async (g) => ({
-        key: g.key, reason: g.reason, label: g.label,
+        key: g.key, reason: g.reason, label: g.label, description: g.description,
         generic: g.generic, brand: g.brand, form: g.form, strength: g.strength,
         registrationNumber: g.registrationNumber,
         prescriptions: g.prescriptions, volume: g.volume,
@@ -85,17 +104,18 @@ async function aggregate({ reason, from, to, department } = {}) {
         byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor),
         lastDate: g.lastDate,
         ...(await statusInfo(g.reason, g.key)),
+        ...remarkInfo(remarks.get(g.reason + '::' + g.key)),
     })));
     return results.sort((a, b) => b.prescriptions - a.prescriptions || b.volume - a.volume);
 }
 
 // per-prescription detail for one drug + reason (who, which dept, how much)
 async function detail(key, reason, { from, to } = {}) {
-    let label = '', generic = '', brand = '', form = '', strength = '', registrationNumber = null;
+    let label = '', description = '', generic = '', brand = '', form = '', strength = '', registrationNumber = null;
     const rows = [];
     for (const { rx, it } of await allItems({ from, to })) {
         if (it.reason !== reason || db.drugKey(it) !== key) continue;
-        if (!label) { label = labelOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; }
+        if (!label) { label = labelOf(it); description = descriptionOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; }
         rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity, volumeMl: it.volumeMl || null });
     }
     rows.sort((a, b) => b.date - a.date);
@@ -107,7 +127,7 @@ async function detail(key, reason, { from, to } = {}) {
     const volumesMl = [...new Set(rows.map((r) => r.volumeMl).filter((v) => v != null))]
         .sort((a, b) => a - b);
     return {
-        key, reason, label, generic, brand, form, strength, registrationNumber,
+        key, reason, label, description, generic, brand, form, strength, registrationNumber,
         prescriptions: rows.length,
         volume: rows.reduce((s, r) => s + r.quantity, 0),   // total qty, not mL — see tally()
         volumesMl,
@@ -115,7 +135,8 @@ async function detail(key, reason, { from, to } = {}) {
         doctors: [...new Set(rows.map((r) => r.doctor).filter(Boolean))],
         rows,
         ...(await statusInfo(reason, key)),
+        ...remarkInfo(await db.getRemarks(reason, key)),
     };
 }
 
-module.exports = { aggregate, detail, labelOf };
+module.exports = { aggregate, detail, labelOf, descriptionOf };

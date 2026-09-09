@@ -13,21 +13,25 @@
         <div class="appbar">
             <div>
                 <h1>Reports</h1>
-                <p class="sub" style="margin:0">High-demand drugs — not in Formulary, out of stock, and in-stock anomalies.</p>
+                <p class="sub" style="margin:0">High-demand drugs — not in Bizbox, out of stock, and in-stock anomalies.</p>
             </div>
             <div class="kpis-inline" id="reportKpis"></div>
         </div>
 
         <div class="toolbar">
-            <div class="tb-right" style="margin-left:0">
-                <button id="genBtn">Generate</button>
+            <div class="period">
+                <label for="from">From</label><input id="from" type="date">
+                <label for="to">To</label><input id="to" type="date">
+                <button id="genBtn" class="sm">Generate</button>
+            </div>
+            <div class="tb-right">
                 <button id="csvBtn" class="ghost sm">Export CSV</button>
                 <button id="printBtn" class="ghost sm">Print / PDF</button>
             </div>
-            <div class="tb-right">
-                <button class="ghost sm" id="filtersBtn">Filters</button>
-            </div>
         </div>
+
+        <!-- Notion-style filters over the generated rows, see js/filterbar.js -->
+        <div id="filterbar"></div>
 
         <div class="content">
             <div id="report">
@@ -43,7 +47,11 @@
                 <div class="tbl-wrap">
                     <table id="reportTable" class="dense">
                         <thead>
-                            <tr><th>Medicine</th><th>Reason</th><th>Prescriptions</th><th>Total qty</th><th>Departments</th><th>Status</th></tr>
+                            <tr>
+                                <th>Generic</th><th>Brand / Form / Strength</th>
+                                <th data-col="reason">Reason</th><th data-col="rx"># RX</th><th data-col="qty"># Prescribed</th>
+                                <th data-col="departments">Departments</th><th data-col="status">Status</th><th data-col="remarks">Remarks</th>
+                            </tr>
                         </thead>
                     </table>
                 </div>
@@ -52,40 +60,66 @@
         </div>
     </div>
 
-    <aside class="drawer" id="drawer">
-        <div class="drawer-head">
-            <h3>Filters</h3>
-            <button class="ghost sm" data-close>✕</button>
-        </div>
-        <div class="drawer-body">
-            <div class="drawer-sec">
-                <h4><span class="n">1</span> Show</h4>
-                <select id="reason">
-                    <option value="both">Both reasons</option>
-                    <option value="not_in_formulary">Not in Formulary</option>
-                    <option value="out_of_stock">Out of stock</option>
-                    <option value="normal">In stock (anomaly)</option>
-                    <option value="all">Everything</option>
+    <!-- ===== print preview: the sheet as it will print, with the settings that shape it ===== -->
+    <dialog id="printDlg" class="dlg dlg-print" aria-labelledby="ppTitle">
+        <div class="pp">
+            <aside class="pp-side">
+                <h3 class="dlg-title" id="ppTitle">Print / PDF</h3>
+                <p class="sub">What you see on the right is the page. Settings are remembered on this computer.</p>
+
+                <label for="ppPaper">Paper</label>
+                <select id="ppPaper">
+                    <option value="letter">Letter (8.5 × 11 in)</option>
+                    <option value="a4">A4 (210 × 297 mm)</option>
+                    <option value="legal">Legal (8.5 × 14 in)</option>
+                    <option value="long">Long (8.5 × 13 in)</option>
                 </select>
-            </div>
-            <div class="drawer-sec">
-                <h4><span class="n">2</span> Department</h4>
-                <select id="department"><option value="all">All departments</option></select>
-            </div>
-            <div class="drawer-sec">
-                <h4><span class="n">3</span> Period</h4>
-                <label>From</label><input id="from" type="date">
-                <label>To</label><input id="to" type="date">
+
+                <label>Orientation</label>
+                <div class="seg" id="ppOrient">
+                    <button type="button" data-v="portrait" class="active">Portrait</button>
+                    <button type="button" data-v="landscape">Landscape</button>
+                </div>
+
+                <label for="ppScale">Text size <span id="ppScaleVal" class="muted"></span></label>
+                <input id="ppScale" type="range" min="70" max="110" step="5">
+
+                <label for="ppMargin">Margins</label>
+                <select id="ppMargin">
+                    <option value="0.4">Narrow</option>
+                    <option value="0.6">Normal</option>
+                    <option value="0.9">Wide</option>
+                </select>
+
+                <label>Columns</label>
+                <div class="pp-cols" id="ppCols">
+                    <label><input type="checkbox" data-col="reason" checked> Reason</label>
+                    <label><input type="checkbox" data-col="rx" checked> # RX</label>
+                    <label><input type="checkbox" data-col="qty" checked> # Prescribed</label>
+                    <label><input type="checkbox" data-col="departments" checked> Departments</label>
+                    <label><input type="checkbox" data-col="status" checked> Status</label>
+                    <label><input type="checkbox" data-col="remarks" checked> Remarks</label>
+                </div>
+                <label class="pp-check"><input type="checkbox" id="ppBreakdown" checked> Include per-department / per-doctor breakdown</label>
+                <label class="pp-check"><input type="checkbox" id="ppHistory" checked> Include full remark history</label>
+
+                <div class="pp-actions">
+                    <button class="ghost" id="ppReset" type="button">Reset</button>
+                    <span style="flex:1"></span>
+                    <button class="ghost" id="ppCancel" type="button">Close</button>
+                    <button id="ppPrint" type="button">Print</button>
+                </div>
+            </aside>
+            <div class="pp-stage" id="ppStage">
+                <div class="pp-sheet" id="ppSheet"></div>
+                <div class="pp-pages muted" id="ppPages"></div>
             </div>
         </div>
-        <div class="drawer-foot">
-            <button class="ghost" id="clearFilters">Clear</button>
-            <button id="applyBtn">Apply</button>
-        </div>
-    </aside>
+    </dialog>
 
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
+    <script src="/js/filterbar.js"></script>
     <script src="/js/reports.js"></script>
 </body>
 </html>

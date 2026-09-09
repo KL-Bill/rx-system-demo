@@ -30,6 +30,7 @@
                 <button class="tab" data-tab="accounts" type="button">Accounts</button>
                 <button class="tab" data-tab="prescriptions" type="button">Prescriptions</button>
                 <button class="tab" data-tab="backups" type="button">Backups</button>
+                <button class="tab" data-tab="medicines" type="button">Medicines</button>
             </div>
         </div>
 
@@ -154,6 +155,11 @@
                 <code>powershell -File scripts\backup-db.ps1</code>
             </div>
         </div>
+
+        <!-- ===== Medicines (Bizbox import) ===== -->
+        <div class="content pane" id="pane-medicines" style="display:none">
+            <div id="importRoot"></div>
+        </div>
     </div>
 
     <!-- ===== new account modal ===== -->
@@ -241,6 +247,7 @@
 
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
+    <script src="/js/bizbox-import.js"></script>
     <script src="/js/it.js"></script>
 </body>
 </html>

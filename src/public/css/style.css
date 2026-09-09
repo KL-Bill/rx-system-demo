@@ -238,3 +238,32 @@ dialog.dlg .errbox { margin-top: 14px; }
     background: var(--navy-soft); color: var(--navy);
 }
 .items button.edit:hover { background: #dfe8fa; }
+
+/* ===== Brand/Form/Strength widget (nurse Add panel + Edit dialog + Add Medicine) =====
+   One search box the way Bizbox lists a product; the three fields under it
+   only appear when the typed medicine matches nothing ("split" mode) or when
+   "No brand" is ticked ("nobrand" mode). The wrapper's data-mode lists the
+   modes a field is visible in; the widget sets .mode-* on .mb-fields. */
+.mb-row .mb-f3 { flex: 2.2 1 260px; }
+.mb-fields [data-mode] { display: none; }
+.mb-fields.mode-search  [data-mode~="search"],
+.mb-fields.mode-split   [data-mode~="split"],
+.mb-fields.mode-nobrand [data-mode~="nobrand"] { display: block; }
+.mb-fields.mode-split   .mb-row-split[data-mode],
+.mb-fields.mode-nobrand .mb-row-split[data-mode] { display: flex; margin-top: 10px; }
+.mb-row2 { margin-top: 10px; align-items: flex-end; }
+.mb-check {
+    display: inline-flex; align-items: center; gap: 6px; margin: 0 4px 10px 0;
+    font-size: 12.5px; color: var(--ink); font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap;
+}
+.mb-check input { width: auto; margin: 0; }
+.mb-splitnote {
+    margin: 10px 0 0; padding: 9px 12px; border-radius: 10px;
+    background: var(--amber-soft); color: #8a5200; font-size: 12.5px; line-height: 1.45;
+}
+.mb-splitnote a { color: var(--navy); font-weight: 700; margin-left: 6px; }
+/* the box is read-only once the nurse has confirmed the split: it shows what
+   will be saved, and "start over" is the way to type something else */
+input.locked { background: #f3f6fb; color: var(--navy); font-weight: 600; }
+.suggestions .opt .sub { color: var(--muted); font-size: 12px; margin-left: 8px; flex: 1; text-align: right; }
+.suggestions .opt .badges { flex: none; display: inline-flex; gap: 4px; align-self: center; }
