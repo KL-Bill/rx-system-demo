@@ -39,9 +39,11 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
 .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { flex: 1; background: #fff; color: var(--navy); border-radius: 0; padding: 8px; font-size: 13px; }
 .seg button.active { background: var(--navy); color: #fff; }
-.pp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
-.pp-cols label, .pp-check { display: flex; align-items: center; gap: 7px; margin: 4px 0 0; font-size: 13px; color: var(--ink); font-weight: 500; cursor: pointer; }
-.pp-cols input, .pp-check input { width: auto; margin: 0; }
+.pp-cols { display: flex; flex-direction: column; gap: 2px; }
+.pp-cols label, .pp-check { display: flex; align-items: center; gap: 9px; margin: 4px 0 0; font-size: 13px; color: var(--ink); font-weight: 500; cursor: pointer; line-height: 1.35; }
+.pp-cols input, .pp-check input { width: 16px; height: 16px; margin: 0; flex: none; }
+.pp-check { margin-top: 10px; align-items: flex-start; }
+.pp-check input { margin-top: 2px; }
 .pp-actions { display: flex; gap: 8px; align-items: center; margin-top: auto; padding-top: 18px; }
 .pp-stage { background: #e9edf4; overflow: auto; padding: 20px; }
 .pp-sheet {
@@ -52,6 +54,19 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
     box-sizing: border-box;
 }
 .pp-pages { font-size: 12px; margin-top: 8px; }
+
+/* Text size: the sheet's font-size is the one knob. Every size inside the
+   report (or its preview clone) is in em so it follows; the shared table
+   styles pin cells at 13px, so these outrank them. */
+#report.print-like *, #ppReport * { font-size: inherit; }
+#report .rh-title, #ppReport .rh-title { font-size: 1.55em !important; }
+#report .rh-sub, #ppReport .rh-sub, #report .rh-meta, #ppReport .rh-meta { font-size: .95em !important; }
+#report table.dense th, #ppReport table.dense th { font-size: .85em !important; }
+#report table.dense td, #ppReport table.dense td { font-size: 1em !important; }
+#report .detail-table th, #ppReport .detail-table th, #report .detail-table td, #ppReport .detail-table td { font-size: .95em !important; }
+#report .rmk-cell .note, #ppReport .rmk-cell .note, #report .rmk-cell .n, #ppReport .rmk-cell .n { font-size: .9em !important; }
+#report .detail-remarks, #ppReport .detail-remarks { font-size: .95em !important; }
+#report .caret, #ppReport .caret { font-size: .85em !important; }
 
 /* the clone inside the sheet renders like paper: no card chrome, fixed layout */
 .print-like .tbl-wrap { border: none; box-shadow: none; border-radius: 0; overflow: visible; background: transparent; }
@@ -68,6 +83,7 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
 /* ===== the actual print ===== */
 @media print {
     .rail, .appbar, .toolbar, .fbar, dialog, .no-print { display: none !important; }
+    #report * { font-size: inherit; }
     html, body { background: #fff; }
     .app { margin-left: 0; }
     .content { padding: 0; }

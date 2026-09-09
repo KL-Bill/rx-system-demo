@@ -6,7 +6,10 @@
  * removes them. Filters persist in localStorage per page, so a station's
  * kiosk client opens the way it was left.
  *
- *   FilterBar.create({ mount, storageKey, fields, onChange })
+ *   FilterBar.create({ mount, storageKey, fields, onChange, quick })
+ *     quick: [{ label, filter: { key, op, value } }] -- one-click toggles shown
+ *       beside "Add filter" (e.g. "Branded only"); a click adds the chip, a
+ *       second click removes it
  *     fields: [{ key, label, type, get, options }]
  *       type    'enum' | 'text' | 'number' | 'date'
  *       get     row -> value (a scalar, or an array for "any of these")
@@ -27,7 +30,7 @@
     const NEEDS_VALUE = (op) => op !== 'empty' && op !== 'not_empty';
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-    function create({ mount, storageKey, fields, onChange }) {
+    function create({ mount, storageKey, fields, onChange, quick = [] }) {
         const byKey = Object.fromEntries(fields.map((f) => [f.key, f]));
         let filters = [];
         try { filters = (JSON.parse(localStorage.getItem(storageKey) || '[]') || []).filter((f) => byKey[f.key]); } catch { filters = []; }
@@ -72,19 +75,33 @@
 
         // ---- bar ----
         mount.classList.add('fbar');
+        const sameFilter = (a, b) => a.key === b.key && a.op === b.op && String(a.value ?? '') === String(b.value ?? '');
         function render() {
-            mount.innerHTML = filters.map((f, i) => {
+            const chips = filters.map((f, i) => {
                 const def = byKey[f.key];
                 const op = (OPS[def.type].find(([k]) => k === f.op) || [])[1] || f.op;
                 const val = NEEDS_VALUE(f.op) ? `<b>${esc(labelOfValue(def, f.value))}</b>` : '';
                 return `<span class="fchip" data-i="${i}" title="Click to edit"><span class="k">${esc(def.label)}</span> <span class="o">${esc(op)}</span> ${val}<button type="button" class="x" data-x="${i}" title="Remove">✕</button></span>`;
-            }).join('')
-                + `<button type="button" class="fadd" id="${mount.id}-add">+ Add filter</button>`
-                + (filters.length ? `<button type="button" class="fclear" id="${mount.id}-clear">Clear all</button>` : '')
-                + `<span class="fcount" id="${mount.id}-count"></span>`;
+            }).join('');
+            const quicks = quick.map((q, i) => `<button type="button" class="fquick ${filters.some((f) => sameFilter(f, q.filter)) ? 'on' : ''}" data-q="${i}">${esc(q.label)}</button>`).join('');
+            mount.innerHTML = `
+                <div class="frow frow-top">
+                    <button type="button" class="fadd" id="${mount.id}-add">+ Add filter</button>
+                    ${quicks}
+                    ${filters.length ? `<button type="button" class="fclear" id="${mount.id}-clear">Clear all</button>` : ''}
+                </div>
+                ${filters.length ? `<div class="frow frow-chips">${chips}<span class="fcount" id="${mount.id}-count"></span></div>` : ''}`;
             mount.querySelectorAll('.fchip').forEach((c) => { c.onclick = (e) => { if (e.target.closest('.x')) return; openPopover(c, Number(c.dataset.i)); }; });
             mount.querySelectorAll('.fchip .x').forEach((x) => { x.onclick = () => { filters.splice(Number(x.dataset.x), 1); commit(); }; });
             mount.querySelector('.fadd').onclick = (e) => openPopover(e.currentTarget, -1);
+            mount.querySelectorAll('.fquick').forEach((btn) => {
+                btn.onclick = () => {
+                    const q = quick[Number(btn.dataset.q)].filter;
+                    const at = filters.findIndex((f) => sameFilter(f, q));
+                    if (at >= 0) filters.splice(at, 1); else filters.push({ ...q });
+                    commit();
+                };
+            });
             const clr = mount.querySelector('.fclear');
             if (clr) clr.onclick = () => { filters = []; commit(); };
         }

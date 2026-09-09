@@ -267,3 +267,17 @@ dialog.dlg .errbox { margin-top: 14px; }
 input.locked { background: #f3f6fb; color: var(--navy); font-weight: 600; }
 .suggestions .opt .sub { color: var(--muted); font-size: 12px; margin-left: 8px; flex: 1; text-align: right; }
 .suggestions .opt .badges { flex: none; display: inline-flex; gap: 4px; align-self: center; }
+
+/* the No brand tick sits on the Brand / Form / Strength label line, seen before typing */
+.lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 5px; }
+.lbl-row label { margin: 0; }
+.mb-check.inline { margin: 0; font-size: 12px; color: var(--navy); }
+/* nobrand mode: the label row (and its tick) stays, the search box and its list go */
+.mb-fields.mode-nobrand [data-mode~="nobrand"].mb-f3 > input,
+.mb-fields.mode-nobrand [data-mode~="nobrand"].mb-f3 > .suggestions { display: none !important; }
+.mb-fields.mode-nobrand .mb-f3 { flex: 0 0 auto; }
+.mb-row3 { margin-top: 8px; }
+.mb-row2 .mb-check { margin-bottom: 10px; }
+/* nobrand mode: only the tick stays, aligned with the generic box */
+.mb-fields.mode-nobrand .mb-f3 .lbl-row > label:first-child { display: none; }
+.mb-fields.mode-nobrand .mb-f3 .lbl-row { margin: 0 0 12px; height: 42px; align-items: flex-end; }

@@ -15,7 +15,7 @@
     const fmtDT = (t) => (t ? new Date(t).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit' }) : '');
     const reasonText = (r) => (r === 'not_in_formulary' ? 'Not in Bizbox'
         : r === 'out_of_stock' ? 'Out of stock'
-        : r === 'normal' ? 'In stock (anomaly)' : r);
+        : r === 'normal' ? 'Prescribed but In Bizbox' : r);
     const statusText = (r) => {
         if (r.status === 'added_to_formulary') return `Added to Bizbox (${fmtD(r.statusDate)})`;
         if (r.status === 'restocked') return `Restocked (${fmtD(r.statusDate)})`;
@@ -34,9 +34,11 @@
     const uniq = (get) => [...new Set(all.flatMap(get))].filter(Boolean).sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
     const fbar = FilterBar.create({
         mount: $('filterbar'), storageKey: 'rx_report_filters', onChange: render,
+        quick: [{ label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } }],
         fields: [
+            { key: 'brand', label: 'Brand', type: 'text', get: (r) => r.brand },
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [
-                { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'In stock (anomaly)' }] },
+                { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'Prescribed but In Bizbox' }] },
             { key: 'status', label: 'Review status', type: 'enum', get: (r) => r.status, options: [
                 { value: 'pending', label: 'Pending' }, { value: 'under_therapeutics', label: 'Under Therapeutics' },
                 { value: 'added_to_formulary', label: 'Added to Bizbox' }, { value: 'restocked', label: 'Restocked' }] },
@@ -92,7 +94,7 @@
             ['Drugs', rows.length],
             ['Not in Bizbox', rows.filter((r) => r.reason === 'not_in_formulary').length],
             ['Out of stock', rows.filter((r) => r.reason === 'out_of_stock').length],
-            ['Anomalies', rows.filter((r) => r.reason === 'normal').length],
+            ['Prescribed but in Bizbox', rows.filter((r) => r.reason === 'normal').length],
             ['# RX', rows.reduce((s, r) => s + r.prescriptions, 0)],
             ['# Prescribed', rows.reduce((s, r) => s + r.volume, 0)],
         ].map(([l, n]) => `<div class="kpi-i"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');

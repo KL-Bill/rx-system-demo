@@ -65,8 +65,8 @@
                             <input id="f-generic" autocomplete="off" placeholder="Enter generic name…">
                             <div class="suggestions" id="sg-generic" style="display:none"></div>
                         </div>
-                        <div class="search-wrap mb-f3" data-mode="search split">
-                            <label for="f-combo">Brand / Form / Strength</label>
+                        <div class="search-wrap mb-f3" data-mode="search split nobrand">
+                            <div class="lbl-row"><label for="f-combo">Brand / Form / Strength</label><label class="mb-check inline"><input type="checkbox" id="f-nobrand"> No brand</label></div>
                             <input id="f-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
                             <div class="suggestions" id="sg-combo" style="display:none"></div>
                         </div>
@@ -93,8 +93,7 @@
                     </div>
                     <div id="f-splitNote" class="mb-splitnote" style="display:none"></div>
                     <div class="mb-row mb-row2">
-                        <label class="mb-check"><input type="checkbox" id="f-nobrand"> No brand</label>
-                        <label class="mb-check"><input type="checkbox" id="f-oos"> Out of stock in Bizbox</label>
+                                                <label class="mb-check"><input type="checkbox" id="f-oos"> Out of stock in Bizbox</label>
                         <div class="mb-qty">
                             <label>Vol (mL)</label>
                             <input id="f-vol" type="number" min="0" step="any" placeholder="—">
@@ -103,11 +102,11 @@
                             <label>Qty</label>
                             <input id="f-qty" type="number" min="1" value="1">
                         </div>
-                        <div class="mb-sig">
+                    </div>
+                    <div class="mb-row mb-row3"><div class="mb-sig">
                             <label>Sig (instructions — optional)</label>
                             <input id="f-sig" autocomplete="off" placeholder="e.g. 1 tab TID for pain">
-                        </div>
-                    </div>
+                        </div></div>
                     <div id="mbNote" class="mb-note" style="display:none"></div>
                     <div class="mb-foot">
                         <button id="mbClear" class="ghost" type="button">Clear</button>
@@ -147,8 +146,8 @@
                             <input id="e-generic" autocomplete="off" placeholder="Enter generic name…">
                             <div class="suggestions" id="esg-generic" style="display:none"></div>
                         </div>
-                        <div class="search-wrap mb-f3" data-mode="search split">
-                            <label for="e-combo">Brand / Form / Strength</label>
+                        <div class="search-wrap mb-f3" data-mode="search split nobrand">
+                            <div class="lbl-row"><label for="e-combo">Brand / Form / Strength</label><label class="mb-check inline"><input type="checkbox" id="e-nobrand"> No brand</label></div>
                             <input id="e-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
                             <div class="suggestions" id="esg-combo" style="display:none"></div>
                         </div>
@@ -175,8 +174,7 @@
                     </div>
         <div id="e-splitNote" class="mb-splitnote" style="display:none"></div>
         <div class="mb-row mb-row2">
-            <label class="mb-check"><input type="checkbox" id="e-nobrand"> No brand</label>
-            <label class="mb-check"><input type="checkbox" id="e-oos"> Out of stock in Bizbox</label>
+                        <label class="mb-check"><input type="checkbox" id="e-oos"> Out of stock in Bizbox</label>
             <div class="mb-qty">
                 <label for="e-vol">Vol (mL)</label>
                 <input id="e-vol" type="number" min="0" step="any" placeholder="—">
@@ -185,11 +183,11 @@
                 <label for="e-qty">Qty</label>
                 <input id="e-qty" type="number" min="1" value="1">
             </div>
-            <div class="mb-sig">
+                    </div>
+                    <div class="mb-row mb-row3"><div class="mb-sig">
                 <label for="e-sig">Sig (instructions — optional)</label>
                 <input id="e-sig" autocomplete="off" placeholder="e.g. 1 tab TID for pain">
-            </div>
-        </div>
+            </div></div>
         <div id="edNote" class="mb-note" style="display:none"></div>
         <div class="errbox" id="edErr"></div>
         <div class="dlg-actions">

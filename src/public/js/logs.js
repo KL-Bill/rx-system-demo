@@ -15,7 +15,7 @@
     const fmtDT = (t) => new Date(t).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit' });
     const reasonBadge = (r) => r === 'not_in_formulary' ? '<span class="badge navy">Not in Bizbox</span>'
         : r === 'out_of_stock' ? '<span class="badge amber">No stock</span>'
-        : '<span class="badge red">In stock — anomaly</span>';
+        : '<span class="badge red">Prescribed but In Bizbox</span>';
 
     // departments
     const st = await api('/api/rx/stations');

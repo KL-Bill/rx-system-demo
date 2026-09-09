@@ -24,9 +24,4 @@
 tr.inactive td { color: var(--muted); }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
 
-/* styled as a button but kept an <a> so the browser handles the file save */
-.btn-link {
-    display: inline-block; text-decoration: none; background: var(--navy-soft); color: var(--navy);
-    padding: 7px 11px; font-size: 12.5px; font-weight: 600; border-radius: 8px;
-}
-.btn-link:hover { background: #dfe8fa; }
+/* .btn-link (download as a button) lives in shell.css */

@@ -26,8 +26,8 @@ const STALE_MS = 2 * 60 * 1000;     // a job with no heartbeat this long lost it
 // ---- row categories (what the reviewer sees as tabs) ----
 //   unchanged  already in Bizbox: seen before, or the exact product is flagged
 //   flag       the exact product exists in the catalog but is not flagged
-//   same       same generic + brand, form/strength differ only by spelling
-//   similar    same generic + brand, a different strength or form
+//   same       same generic + brand, matched by form family -- a suggestion to confirm
+//   similar    same generic + brand, a different strength or form (new product)
 //   new        nothing close
 //   attention  the split is doubtful (no form / no strength / digits in the brand)
 //   excluded   matches a remembered exclusion
@@ -154,10 +154,12 @@ async function runAnalyze(id, sheet, genericCol, descCol) {
     // byGenBrand is keyed on the salt-stripped generic + brand, so the PNDF
     // "Cetirizine Dihydrochloride / Allerkid" rows sit with Bizbox's
     // "CETIRIZINE / ALLERKID". Unbranded rows ('' brand) are kept apart.
-    const byDesc = new Map(), byKey = new Map(), byGenBrand = new Map(), generics = new Set();
+    // byDescLoose: the same description under the salt-named spelling of the
+    // generic ("Cetirizine Dihydrochloride" for "CETIRIZINE") is the same row
+    const byDesc = new Map(), byDescLoose = new Map(), byKey = new Map(), byGenBrand = new Map(), generics = new Set();
     for (const r of cat) {
         generics.add(r.lg);
-        if (r.d) byDesc.set(r.lg + '|' + r.ld, r);
+        if (r.d) { byDesc.set(r.lg + '|' + r.ld, r); byDescLoose.set(genericKey(r.g) + '|' + r.ld, r); }
         if (r.b || r.f || r.s) {
             byKey.set([r.lg, r.lb, r.lf, r.ls].join('|'), r);
             const gb = genericKey(r.g) + '|' + r.lb;
@@ -199,7 +201,7 @@ async function runAnalyze(id, sheet, genericCol, descCol) {
         if (!generic) { row.category = 'attention'; row.action = 'review'; row.warnings.unshift('no generic'); out.push(row); counts.attention++; continue; }
 
         // 1. seen before, word for word
-        let m = byDesc.get(lg + '|' + norm(description));
+        let m = byDesc.get(lg + '|' + norm(description)) || byDescLoose.get(genericKey(generic) + '|' + norm(description));
         // 2. the exact product, by its parts
         if (!m) m = byKey.get([lg, norm(sp.brand), norm(sp.form), norm(sp.strength)].join('|'));
         if (m) {
@@ -208,28 +210,41 @@ async function runAnalyze(id, sheet, genericCol, descCol) {
             row.action = m.ihf ? 'skip' : 'flag';
             out.push(row); counts[row.category]++; continue;
         }
-        // 3. same generic + brand: same spelling-insensitive form+strength, or a sibling
+        // 3. same generic + brand. A twin whose form and strength match once
+        //    spelling is set aside is the same product, decided for the
+        //    reviewer: already in Bizbox -> unchanged, else -> mark it. A twin
+        //    that only matches by form FAMILY (AMPOULE vs Solution for
+        //    injection) is a suggestion the reviewer confirms. Other strengths
+        //    of the brand make it a new product, with those listed beside it.
         const sibs = (byGenBrand.get(genericKey(generic) + '|' + norm(sp.brand)) || []).filter((r) => !claimed.has(rowKey(r)));
-        // Bizbox rows first, then an exact generic spelling over a salt-stripped
-        // one: when several old rows could be the twin, keep the closest
         const ranked = [...sibs].sort((a, b) => (Number(b.ihf) - Number(a.ihf)) || (Number(b.lg === lg) - Number(a.lg === lg)));
-        const twin = ranked.find((r) => formKey(r.f) === formKey(sp.form) && sameStrength(r, sp))
-            || ranked.find((r) => sameForm(r.f, sp.form) && sameStrength(r, sp));
-        if (twin) {
-            claimed.add(rowKey(twin));
-            row.match = product(twin); row.category = 'same'; row.action = 'same';
+        const exact = ranked.find((r) => (formKey(r.f) === formKey(sp.form) || (baseForm(r.f) && baseForm(r.f) === baseForm(sp.form)) || !String(r.f).trim()) && sameStrength(r, sp));
+        const doubtful = sp.warnings.length && !(sp.warnings.length === 1 && sp.warnings[0] === 'no strength' && sp.form && sp.brand);
+        if (exact && !doubtful) {
+            claimed.add(rowKey(exact));
+            row.match = product(exact);
+            row.category = exact.ihf ? 'unchanged' : 'flag';
+            row.action = exact.ihf ? 'skip' : 'same';
+            out.push(row); counts[row.category]++; continue;
+        }
+        const family = exact || ranked.find((r) => sameForm(r.f, sp.form) && sameStrength(r, sp));
+        if (family) {
+            claimed.add(rowKey(family));
+            row.match = product(family); row.category = 'same'; row.action = 'review';
+            row.siblings = ranked.filter((r) => r !== family).slice(0, 5).map(product);
             out.push(row); counts.same++; continue;
         }
-        if (sp.warnings.length && !(sp.warnings.length === 1 && sp.warnings[0] === 'no strength' && sp.form && sp.brand)) {
+        if (doubtful) {
             // doubtful split. One exception: "BRAND TABLET" with no strength is
             // a real pattern (multivitamins) — that is New, not a problem.
             row.category = 'attention'; row.action = 'review';
-            row.siblings = sibs.slice(0, 6).map(product);
+            row.siblings = ranked.slice(0, 6).map(product);
             out.push(row); counts.attention++; continue;
         }
         if (sibs.length) {
             row.category = 'similar'; row.action = 'new';
-            row.siblings = sibs.slice(0, 6).map(product);
+            row.note = row.note ? row.note + '; other strengths of this brand exist' : 'other strengths of this brand exist';
+            row.siblings = ranked.slice(0, 6).map(product);
             out.push(row); counts.similar++; continue;
         }
         if (!generics.has(lg)) row.note = row.note ? row.note + '; new generic' : 'new generic';

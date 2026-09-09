@@ -168,9 +168,16 @@ table.dense tr.selected td { background: var(--navy-soft); }
 
 /* --- Notion-style filter bar (js/filterbar.js) --- */
 .fbar {
-    position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    position: relative; display: flex; flex-direction: column; gap: 8px;
     padding: 9px 22px; background: #fff; border-bottom: 1px solid var(--line);
 }
+.frow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fquick {
+    background: #fff; color: var(--navy); border: 1px solid #d9e3f7;
+    padding: 5px 11px; font-size: 12.5px; border-radius: 999px; font-weight: 600;
+}
+.fquick:hover { background: var(--navy-soft); }
+.fquick.on { background: var(--navy); color: #fff; border-color: var(--navy); }
 .fchip {
     display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px 5px 11px;
     border: 1px solid #d9e3f7; border-radius: 999px; background: var(--navy-soft);
@@ -190,12 +197,17 @@ table.dense tr.selected td { background: var(--navy-soft); }
 .fclear:hover { background: #f2f6fd; color: var(--red); }
 .fcount { margin-left: auto; font-size: 12px; color: var(--muted); }
 .fpop {
-    position: absolute; z-index: 45; min-width: 360px; max-width: calc(100vw - 100px);
+    position: absolute; z-index: 45; width: 640px; max-width: calc(100vw - 120px);
     background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
     box-shadow: 0 14px 40px rgba(20, 48, 107, .16); display: grid; gap: 10px;
 }
-.fpop-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.fpop-row select, .fpop-row input { width: auto; flex: 1 1 110px; padding: 7px 10px; font-size: 13px; }
+/* property, operator, value: always on one line */
+.fpop-row { display: flex; gap: 8px; flex-wrap: nowrap; }
+.fpop-row select, .fpop-row input { width: auto; min-width: 0; padding: 7px 10px; font-size: 13px; }
+.fpop-row .f-field { flex: 0 0 190px; }
+.fpop-row .f-op { flex: 0 0 170px; }
+.fpop-row .f-val { flex: 1 1 auto; display: flex; }
+.fpop-row .f-val > * { flex: 1 1 auto; width: 100%; }
 .fpop-row .f-val:empty { display: none; }
 .fpop-actions { display: flex; align-items: center; gap: 8px; }
 .fpop-actions .sp { flex: 1; }
@@ -281,3 +293,40 @@ table.dense tr.selected td { background: var(--navy-soft); }
 .imp-missing { margin-top: 14px; }
 .imp-missing summary { cursor: pointer; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafcff; font-size: 13px; }
 .imp-missing .tbl-wrap { margin-top: 10px; max-height: 320px; }
+
+/* an <a> that must look like a button (a download the browser handles) */
+.btn-link {
+    display: inline-flex; align-items: center; text-decoration: none; background: var(--navy-soft); color: var(--navy);
+    padding: 10px 16px; font-size: 14px; font-weight: 600; border-radius: 10px; line-height: normal;
+}
+.btn-link:hover { background: #dfe8fa; text-decoration: none; }
+.btn-link.sm { padding: 7px 11px; font-size: 12.5px; border-radius: 8px; }
+
+/* a count on each tab; the anomaly one turns red when it is not zero */
+.tab-n { display: inline-block; min-width: 18px; margin-left: 7px; padding: 0 6px; border-radius: 999px; background: #e6ebf5; color: var(--navy); font-size: 11px; line-height: 18px; text-align: center; font-weight: 800; }
+.tab.active .tab-n { background: #fff; }
+.tab-n.warn { background: var(--red); color: #fff; }
+.rmk-cell .rmk-set { align-self: flex-start; margin-top: 4px; padding: 4px 9px; font-size: 12px; }
+.rv-drug { font-weight: 700; color: var(--navy); margin: -6px 0 12px; font-size: 13.5px; }
+
+/* --- import review: four groups as big buttons, plain-words grid --- */
+.imp-groups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0 8px; }
+.imp-group { display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px 14px; border-radius: 12px; background: #f4f7fc; color: var(--ink); border: 2px solid transparent; }
+.imp-group .n { font-size: 22px; font-weight: 800; color: var(--navy); min-width: 34px; }
+.imp-group .l { font-size: 13px; font-weight: 700; line-height: 1.25; }
+.imp-group:hover { background: #eaf0fb; }
+.imp-group.active { background: #fff; border-color: var(--navy); }
+.imp-group.empty { opacity: .55; }
+.imp-group.decide .n { color: var(--amber); }
+.imp-group.decide.active { border-color: var(--amber); }
+.imp-group.new .n { color: var(--green-dark); }
+.imp-why { font-size: 12.5px; color: var(--ink); min-width: 220px; }
+.imp-suggest { margin-top: 4px; font-size: 12.5px; }
+.imp-read { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; min-width: 300px; }
+.imp-read label { display: flex; flex-direction: column; gap: 2px; margin: 0; font-size: 11px; color: var(--muted); font-weight: 600; }
+.imp-read input.cell { width: 100%; }
+.imp-acts { white-space: nowrap; }
+.imp-acts button { margin: 2px 4px 2px 0; }
+.imp-out { font-size: 13px; }
+.imp-foot { margin-top: 10px; font-size: 12.5px; }
+@media (max-width: 1100px) { .imp-groups { grid-template-columns: repeat(2, 1fr); } }

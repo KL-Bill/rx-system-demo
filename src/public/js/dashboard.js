@@ -11,14 +11,20 @@
     $('railUser').textContent = `${user.name} · ${user.role}`;
 
     // tab -> which rows we show
+    //   review    open, nobody has said anything about it yet
+    //   reviewed  open, but carries a remark or sits with Therapeutics
+    //   anomaly   in Bizbox and prescribed here anyway
+    //   resolved  added to Bizbox / restocked
     const TABS = [
-        ['review', 'Needs Review'],
-        ['anomaly', 'In-stock Anomalies'],
+        ['review', 'To review'],
+        ['reviewed', 'Reviewed'],
+        ['anomaly', 'Prescribed but In Bizbox'],
         ['resolved', 'Resolved'],
     ];
     let tab = 'review', q = '';
     let problems = [], anomalies = [], current = null;
     const selected = new Map();   // key -> row
+    const isReviewed = (r) => !r.resolved && ((r.remarks && r.remarks.length > 0) || r.status === 'under_therapeutics');
 
     // remark presets — the server's list is the truth, this is the fallback
     // for the moment before it answers
@@ -26,12 +32,12 @@
         available_in_bizbox: 'Available in Bizbox', ordered: 'Ordered', for_order: 'For Order',
         other_brand_only: 'Only other brand available', under_therapeutics: 'Under Therapeutics review', other: 'Other',
     };
-    api('/api/pharmacy/remarks?key=_&reason=_').then((r) => { if (r.ok && r.data.presets) PRESETS = r.data.presets; fillPresetSelect(); }).catch(() => {});
+    api('/api/pharmacy/remarks?key=_&reason=_').then((r) => { if (r.ok && r.data.presets) PRESETS = r.data.presets; }).catch(() => {});
 
     const fmtDT = (t) => (t ? new Date(t).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit' }) : '');
     const reasonBadge = (r) => r === 'not_in_formulary' ? '<span class="badge navy">Not in Bizbox</span>'
         : r === 'out_of_stock' ? '<span class="badge amber">Out of stock</span>'
-        : '<span class="badge red">In stock — anomaly</span>';
+        : '<span class="badge red">Prescribed but In Bizbox</span>';
     const statusBadge = (r) => {
         if (r.status === 'added_to_formulary') return `<span class="badge green">Added to Bizbox</span> <span class="muted">${fmtDT(r.statusDate)}</span>`;
         if (r.status === 'restocked') return `<span class="badge green">Restocked</span> <span class="muted">${fmtDT(r.statusDate)}</span>`;
@@ -40,10 +46,13 @@
     };
     const REMARK_TONE = { available_in_bizbox: 'green', ordered: 'amber', for_order: 'amber', other_brand_only: 'navy', under_therapeutics: 'amber', other: 'gray' };
     const remarkBadge = (k) => `<span class="badge ${REMARK_TONE[k] || 'gray'}">${escapeHtml(PRESETS[k] || k)}</span>`;
-    const remarkCell = (r) => {
-        if (!r.lastRemark) return '<span class="muted">—</span>';
-        const more = r.remarks.length > 1 ? `<span class="n">+${r.remarks.length - 1} earlier</span>` : '';
-        return `<div class="rmk-cell">${remarkBadge(r.lastRemark.remark)}${r.lastRemark.note ? `<span class="note" title="${escapeHtml(r.lastRemark.note)}">${escapeHtml(r.lastRemark.note)}</span>` : ''}${more}</div>`;
+    // the Remarks cell: the latest remark, and the button that sets one —
+    // the table is where the work happens, the side panel only explains
+    const remarkCell = (r, i) => {
+        const last = r.lastRemark
+            ? `${remarkBadge(r.lastRemark.remark)}${r.lastRemark.note ? `<span class="note" title="${escapeHtml(r.lastRemark.note)}">${escapeHtml(r.lastRemark.note)}</span>` : ''}<span class="n">${escapeHtml(r.lastRemark.actor || '')} · ${fmtDT(r.lastRemark.at)}${r.remarks.length > 1 ? ` · +${r.remarks.length - 1} earlier` : ''}</span>`
+            : '<span class="muted">No remark yet</span>';
+        return `<div class="rmk-cell">${last}<button class="ghost sm rmk-set" type="button" data-rmk="${i}">${r.lastRemark ? 'Add remark' : 'Set remark'}</button></div>`;
     };
 
     // ---------- filters (Notion-style bar; see js/filterbar.js) ----------
@@ -51,14 +60,18 @@
     const uniq = (get) => [...new Set(allRows().flatMap(get))].filter(Boolean).sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
     const fbar = FilterBar.create({
         mount: $('filterbar'), storageKey: 'rx_review_filters', onChange: () => { selected.clear(); render(); },
+        // the reason this system exists: which BRANDS are in demand that Bizbox
+        // lacks. Unbranded requests are one click away from disappearing.
+        quick: [{ label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } }],
         fields: [
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [
-                { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'In stock (anomaly)' }] },
+                { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'Prescribed but In Bizbox' }] },
             { key: 'status', label: 'Review status', type: 'enum', get: (r) => r.status, options: [
                 { value: 'pending', label: 'Pending' }, { value: 'under_therapeutics', label: 'Under Therapeutics' },
                 { value: 'added_to_formulary', label: 'Added to Bizbox' }, { value: 'restocked', label: 'Restocked' }] },
             { key: 'remark', label: 'Latest remark', type: 'enum', get: (r) => (r.lastRemark ? r.lastRemark.remark : ''),
                 options: () => Object.entries(PRESETS).map(([value, label]) => ({ value, label })) },
+            { key: 'brand', label: 'Brand', type: 'text', get: (r) => r.brand },
             { key: 'department', label: 'Department', type: 'enum', get: (r) => r.departments, options: () => uniq((r) => r.departments) },
             { key: 'doctor', label: 'Doctor', type: 'enum', get: (r) => r.doctors, options: () => uniq((r) => r.doctors) },
             { key: 'generic', label: 'Generic', type: 'text', get: (r) => r.generic },
@@ -83,10 +96,13 @@
         render();
     }
 
+    const baseRows = (t) => (t === 'anomaly' ? anomalies
+        : t === 'resolved' ? problems.filter((r) => r.resolved)
+        : t === 'reviewed' ? problems.filter(isReviewed)
+        : problems.filter((r) => !r.resolved && !isReviewed(r)));
+
     function rowsForTab() {
-        let rows = tab === 'anomaly' ? anomalies
-            : tab === 'resolved' ? problems.filter((r) => r.resolved)
-            : problems.filter((r) => !r.resolved);
+        let rows = baseRows(tab);
         const total = rows.length;
         rows = fbar.apply(rows);
         if (q) rows = rows.filter((r) => `${r.generic} ${r.description} ${r.label}`.toLowerCase().includes(q));
@@ -96,12 +112,37 @@
 
     // ---------- render ----------
     function renderTabs() {
-        $('tabs').innerHTML = TABS.map(([v, l]) =>
-            `<button class="tab ${v === tab ? 'active' : ''}" data-v="${v}">${l}</button>`).join('');
+        $('tabs').innerHTML = TABS.map(([v, l]) => {
+            const n = baseRows(v).length;
+            return `<button class="tab ${v === tab ? 'active' : ''}" data-v="${v}">${l}<span class="tab-n ${v === 'anomaly' && n ? 'warn' : ''}">${n}</span></button>`;
+        }).join('');
         $('tabs').querySelectorAll('.tab').forEach((t) => {
             t.onclick = () => { tab = t.dataset.v; selected.clear(); render(); };
         });
     }
+
+    // columns per tab. "# Prescribed" is a count of units, never millilitres:
+    // a liquid medicine has a real volume in mL and the two must not share a word
+    const COLS = {
+        sel: { th: '<th class="sel"><input type="checkbox" id="selAll"></th>', td: (r) => `<td class="sel"><input type="checkbox" data-k="${escapeHtml(r.reason + '::' + r.key)}" ${selected.has(r.reason + '::' + r.key) ? 'checked' : ''}></td>` },
+        nosel: { th: '<th class="sel"></th>', td: () => '<td class="sel"></td>' },
+        generic: { th: '<th>Generic</th>', td: (r) => `<td><b>${escapeHtml(r.generic)}</b></td>` },
+        description: { th: '<th>Brand/Form/Strength</th>', td: (r) => `<td>${escapeHtml(r.description || '—')}</td>` },
+        reason: { th: '<th>Reason</th>', td: (r) => `<td>${reasonBadge(r.reason)}</td>` },
+        rx: { th: '<th># RX</th>', td: (r) => `<td>${r.prescriptions}</td>` },
+        qty: { th: '<th># Prescribed</th>', td: (r) => `<td>${r.volume}</td>` },
+        departments: { th: '<th>Departments</th>', td: (r) => `<td class="muted">${escapeHtml(r.departments.join(', '))}</td>` },
+        doctors: { th: '<th>Doctors</th>', td: (r) => `<td class="muted">${escapeHtml(r.byDoctor.map((x) => drName(x.name)).join('; '))}</td>` },
+        last: { th: '<th>Last prescribed</th>', td: (r) => `<td>${fmtDT(r.lastDate)}</td>` },
+        status: { th: '<th>Status</th>', td: (r) => `<td>${statusBadge(r)}</td>` },
+        remarks: { th: '<th>Remarks</th>', td: (r, i) => `<td>${remarkCell(r, i)}</td>` },
+    };
+    const LAYOUT = {
+        review: ['sel', 'generic', 'description', 'reason', 'rx', 'qty', 'departments', 'status', 'remarks'],
+        reviewed: ['sel', 'generic', 'description', 'reason', 'rx', 'qty', 'remarks', 'departments', 'status'],
+        anomaly: ['nosel', 'generic', 'description', 'rx', 'qty', 'departments', 'doctors', 'last', 'remarks'],
+        resolved: ['sel', 'generic', 'description', 'reason', 'rx', 'qty', 'departments', 'status', 'remarks'],
+    };
 
     function render() {
         renderTabs();
@@ -116,41 +157,15 @@
         $('count').textContent = `${rows.length} medicine${rows.length === 1 ? '' : 's'}`;
         $('empty').style.display = rows.length ? 'none' : 'block';
 
-        const anom = tab === 'anomaly';
-        // "# Prescribed" is a count of units, never millilitres: a liquid
-        // medicine has a real volume in mL and the two must not share a word
-        $('thead').innerHTML = anom
-            ? `<th class="sel"></th><th>Generic</th><th>Brand/Form/Strength</th><th># RX</th><th># Prescribed</th><th>Departments</th><th>Doctors</th><th>Last prescribed</th><th>Remarks</th>`
-            : `<th class="sel"><input type="checkbox" id="selAll"></th><th>Generic</th><th>Brand/Form/Strength</th><th>Reason</th><th># RX</th><th># Prescribed</th><th>Departments</th><th>Status</th><th>Remarks</th>`;
+        const cols = LAYOUT[tab].map((c) => COLS[c]);
+        $('thead').innerHTML = cols.map((c) => c.th).join('');
+        $('tbl').innerHTML = rows.map((r, i) => `<tr class="clickable" data-i="${i}">${cols.map((c) => c.td(r, i)).join('')}</tr>`).join('');
 
-        $('tbl').innerHTML = rows.map((r, i) => anom ? `
-            <tr class="clickable" data-i="${i}">
-                <td class="sel"></td>
-                <td><b>${escapeHtml(r.generic)}</b></td>
-                <td>${escapeHtml(r.description || '—')}</td>
-                <td>${r.prescriptions}</td>
-                <td>${r.volume}</td>
-                <td class="muted">${escapeHtml(r.departments.join(', '))}</td>
-                <td class="muted">${escapeHtml(r.byDoctor.map((x) => drName(x.name)).join('; '))}</td>
-                <td>${fmtDT(r.lastDate)}</td>
-                <td>${remarkCell(r)}</td>
-            </tr>` : `
-            <tr class="clickable" data-i="${i}">
-                <td class="sel"><input type="checkbox" data-k="${escapeHtml(r.reason + '::' + r.key)}" ${selected.has(r.reason + '::' + r.key) ? 'checked' : ''}></td>
-                <td><b>${escapeHtml(r.generic)}</b></td>
-                <td>${escapeHtml(r.description || '—')}</td>
-                <td>${reasonBadge(r.reason)}</td>
-                <td>${r.prescriptions}</td>
-                <td>${r.volume}</td>
-                <td class="muted">${escapeHtml(r.departments.join(', '))}</td>
-                <td>${statusBadge(r)}</td>
-                <td>${remarkCell(r)}</td>
-            </tr>`).join('');
-
-        // row click -> detail drawer (ignore clicks on the checkbox)
+        // row click -> detail drawer (ignore clicks on the checkbox and the remark button)
         $('tbl').querySelectorAll('tr').forEach((tr) => {
-            tr.onclick = (e) => { if (e.target.type !== 'checkbox') openDetail(rows[Number(tr.dataset.i)], tr); };
+            tr.onclick = (e) => { if (e.target.type === 'checkbox' || e.target.closest('button')) return; openDetail(rows[Number(tr.dataset.i)], tr); };
         });
+        $('tbl').querySelectorAll('button.rmk-set').forEach((b) => { b.onclick = () => openRemark(rows[Number(b.dataset.rmk)]); });
         $('tbl').querySelectorAll('input[type=checkbox]').forEach((cb) => {
             cb.onclick = (e) => e.stopPropagation();
             cb.onchange = () => {
@@ -258,7 +273,7 @@
             .map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${x.prescriptions}</td><td>${x.volume}</td></tr>`).join('');
 
         const reasonLabel = row.reason === 'not_in_formulary' ? 'Not in Bizbox'
-            : row.reason === 'out_of_stock' ? 'Out of stock' : 'In stock (anomaly)';
+            : row.reason === 'out_of_stock' ? 'Out of stock' : 'Prescribed but In Bizbox';
         $('dGrid').innerHTML =
             kv('Generic', row.generic) + kv('Brand', row.brand) +
             kv('Form', row.form) + kv('Strength', row.strength) +
@@ -268,7 +283,7 @@
             kv('Registration No.', row.registrationNumber) + kv('Reason', reasonLabel) +
             kv('Status', row.status.replace(/_/g, ' ')) + kv('Last prescribed', fmtDT(row.lastDate));
 
-        $('dAuthWrap').style.display = isStaff ? 'block' : 'none';
+        $('dAuthWrap').style.display = isStaff && row.reason !== 'normal' ? 'block' : 'none';
         $('dAuth').value = '';
         $('dErr').classList.remove('show');
         $('dActions').innerHTML = actionButtons(row);
@@ -293,22 +308,7 @@
     }
     $('dClose').onclick = () => showDetail(false);
 
-    // after a change, show the same drug again with fresh numbers
-    async function reloadAndReopen(reason, key) {
-        await load();
-        const row = allRows().find((r) => r.reason === reason && r.key === key);
-        if (row) openDetail(row, null); else showDetail(false);
-    }
-
-    // ---------- remarks ----------
-    function fillPresetSelect() {
-        const sel = $('rmkPreset');
-        const keep = sel.value;
-        sel.innerHTML = Object.entries(PRESETS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
-        if (keep && PRESETS[keep]) sel.value = keep;
-    }
-    fillPresetSelect();
-
+    // the remark history, read-only: the panel explains, the table acts
     function renderRemarks(row) {
         const list = row.remarks || [];
         $('dRemarks').innerHTML = list.length ? list.map((r) => `
@@ -316,40 +316,21 @@
                 <div class="top">${remarkBadge(r.remark)}<span class="who">${escapeHtml(r.actor || '')}${r.authorizedBy && r.authorizedBy !== r.actor ? ` · auth. ${escapeHtml(r.authorizedBy)}` : ''} · ${fmtDT(r.at)}</span></div>
                 ${r.note ? `<div class="note">${escapeHtml(r.note)}</div>` : ''}
             </div>`).join('')
-            : '<div class="muted" style="font-size:12.5px">No remarks yet.</div>';
-        $('rmkNote').value = '';
-        // a resolved row still takes remarks (why it was closed), but the
-        // preset that resolves cannot resolve twice
-        const opt = $('rmkPreset').querySelector('option[value="available_in_bizbox"]');
-        if (opt) opt.disabled = !!row.resolved;
-        if (row.resolved && $('rmkPreset').value === 'available_in_bizbox') $('rmkPreset').value = 'other';
+            : '<div class="muted" style="font-size:12.5px">No remarks yet. Use "Set remark" on the row.</div>';
     }
 
-    $('rmkAdd').onclick = async () => {
-        const { row } = current;
-        const remark = $('rmkPreset').value;
-        $('dErr').classList.remove('show');
-        if (remark === 'available_in_bizbox') { openResolve(row); return; }
-        const body = { key: row.key, reason: row.reason, remark, note: $('rmkNote').value.trim(), drug: { label: row.label } };
-        if (isStaff) body.authorizerPassword = $('dAuth').value;
-        const btn = $('rmkAdd'); btn.disabled = true;
-        const res = await api('/api/pharmacy/remarks', { body });
-        btn.disabled = false;
-        if (!res.ok) { detailError(res.data.message || 'Could not add the remark'); return; }
-        await reloadAndReopen(row.reason, row.key);
-    };
-
-    // ---------- "Available in Bizbox": the careful resolve ----------
-    // Three steps for a not-in-Bizbox row: what will happen, review the
-    // medicine that goes into Bizbox, confirm. Two for out-of-stock (the
-    // product is already in Bizbox — nothing to review) and for an anomaly
-    // (nothing to resolve; the remark alone is recorded).
+    // ---------- Set remark: the stepper ----------
+    // Step 1 picks the remark and a note. "Available in Bizbox" on a not-in-
+    // Bizbox row adds step 2, a look at the medicine that will go into
+    // Bizbox, because that remark resolves the row. Step 3 confirms, with the
+    // admin password for staff.
     const rvDlg = $('resolveDlg');
     $('rvWidget').innerHTML = MedWidget.html('r-', 'rsg-', { vol: true });
     const rvWidget = MedWidget.create({ p: 'r-', sg: 'rsg-', statusId: 'rvStatus', noteId: 'rvNote', splitNoteId: 'r-splitNote', clearsBelow: false, confirmBizbox: false });
     let rv = null;      // { row, steps: [1,2,3] | [1,3], at: index }
 
-    const STEP_NAMES = { 1: 'What will happen', 2: 'Review the medicine', 3: 'Confirm' };
+    const STEP_NAMES = { 1: 'Remark', 2: 'Review the medicine', 3: 'Confirm' };
+    const RESOLVES = (row, preset) => preset === 'available_in_bizbox' && !row.resolved && row.reason !== 'normal';
     function renderSteps() {
         $('rvSteps').innerHTML = rv.steps.map((n, i) => `<div class="step ${i === rv.at ? 'active' : i < rv.at ? 'done' : ''}"><span class="n">${i + 1}</span>${STEP_NAMES[n]}</div>`).join('');
         rvDlg.querySelectorAll('.step-pane').forEach((p) => p.classList.toggle('active', Number(p.dataset.step) === rv.steps[rv.at]));
@@ -359,24 +340,36 @@
     }
     const rvError = (msg) => { $('rvErr').textContent = msg; $('rvErr').classList.add('show'); };
 
-    function openResolve(row) {
-        const nif = row.reason === 'not_in_formulary';
-        rv = { row, steps: nif ? [1, 2, 3] : [1, 3], at: 0 };
-        $('rvWhat').innerHTML = nif
-            ? `<b>${escapeHtml(row.generic)}, ${escapeHtml(row.description)}</b> will be added to Bizbox in this system and this row will be marked <b>Added to Bizbox</b> and move to Resolved.<br><br>From then on the nurse's screen shows it as <b>In Bizbox</b> — prescribing it here will ask "are you sure?". Next, you will check the medicine before anything is saved.`
-            : row.reason === 'out_of_stock'
-                ? `<b>${escapeHtml(row.generic)}, ${escapeHtml(row.description)}</b> is already in Bizbox. Recording it as available marks this row <b>Restocked</b> and moves it to Resolved.`
-                : `<b>${escapeHtml(row.generic)}, ${escapeHtml(row.description)}</b> is in Bizbox and was prescribed here anyway. The remark is recorded on this anomaly for the audit; nothing else changes.`;
-        if (nif) {
-            rvWidget.load({ genericName: row.generic, brandName: row.brand, formName: row.form, strength: row.strength, description: row.description, fromCatalog: false, volumeMl: (row.volumesMl || [])[0] || null });
-            loadSimilar($('rvSimilar'), rvWidget, row.generic, row.brand);
-        }
-        $('rvNoteText').value = $('rmkNote').value.trim();
+    function openRemark(row) {
+        rv = { row, steps: [1, 3], at: 0 };
+        $('rvTitle').textContent = 'Set remark';
+        $('rvDrug').textContent = `${row.generic} — ${row.description}`;
+        const sel = $('rvPreset');
+        sel.innerHTML = Object.entries(PRESETS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+        // a resolved row still takes remarks (why it was closed), but the
+        // preset that resolves cannot resolve twice
+        const opt = sel.querySelector('option[value="available_in_bizbox"]');
+        if (opt) opt.disabled = !!row.resolved;
+        sel.value = row.resolved ? 'other' : (row.reason === 'not_in_formulary' ? 'for_order' : 'other');
+        $('rvNoteText').value = '';
+        $('rvHint').textContent = '';
         $('rvAuthWrap').style.display = isStaff ? 'block' : 'none';
-        $('rvAuth').value = isStaff ? $('dAuth').value : '';
+        $('rvAuth').value = '';
+        onPresetChange();
         renderSteps();
         rvDlg.showModal();
+        sel.focus();
     }
+    function onPresetChange() {
+        const { row } = rv;
+        const preset = $('rvPreset').value;
+        $('rvHint').textContent = preset === 'available_in_bizbox'
+            ? (row.reason === 'not_in_formulary' ? 'This resolves the row: the medicine will be added to Bizbox in this system and marked Added to Bizbox. You will check it first.'
+                : row.reason === 'out_of_stock' ? 'This resolves the row as Restocked.' : 'Recorded on this anomaly for the audit; nothing else changes.')
+            : 'Recorded on the row. The status does not change.';
+        rv.steps = RESOLVES(row, preset) && row.reason === 'not_in_formulary' ? [1, 2, 3] : [1, 3];
+    }
+    $('rvPreset').onchange = onPresetChange;
 
     // every product under this generic (and brand): Bizbox ones first. Click
     // one to make it the medicine being added — "same product, other spelling"
@@ -388,7 +381,7 @@
         host.innerHTML = '<h5>Also under this generic — click one if it is the same product</h5>' + list.map((p, i) => `
             <div class="opt" data-i="${i}">
                 <span>${escapeHtml(p.description || [p.brand, p.strength, p.form].filter(Boolean).join(' '))}</span>
-                <span class="badge ${p.inFormulary ? 'green' : 'amber'}">${p.inFormulary ? 'In Bizbox' : 'Not flagged'}</span>
+                <span class="badge ${p.inFormulary ? 'green' : 'amber'}">${p.inFormulary ? 'In Bizbox' : 'Not marked'}</span>
             </div>`).join('');
         host.querySelectorAll('.opt').forEach((el) => {
             el.onclick = () => {
@@ -401,24 +394,30 @@
     }
 
     function fillSummary() {
-        const s = rvWidget.values();
         const { row } = rv;
-        const nif = row.reason === 'not_in_formulary';
-        const rows = nif ? [
-            ['Generic', s.generic], ['Brand / Form / Strength', s.description],
-            ['Brand', s.brand || '—'], ['Form', s.form || '—'], ['Strength', s.strength || '—'],
-            ['Will be marked', 'Added to Bizbox'],
-        ] : [
-            ['Generic', row.generic], ['Brand / Form / Strength', row.description],
-            ['Will be marked', row.reason === 'out_of_stock' ? 'Restocked' : 'Remark only (anomaly)'],
-        ];
+        const preset = $('rvPreset').value;
+        const note = $('rvNoteText').value.trim();
+        const rows = [['Medicine', `${row.generic} — ${row.description}`], ['Remark', PRESETS[preset] || preset]];
+        if (note) rows.push(['Note', note]);
+        if (RESOLVES(row, preset)) {
+            if (row.reason === 'not_in_formulary') {
+                const s = rvWidget.values();
+                rows.push(['Goes into Bizbox as', `${s.generic} — ${s.description}`], ['Will be marked', 'Added to Bizbox']);
+            } else rows.push(['Will be marked', 'Restocked']);
+        } else rows.push(['Status', 'unchanged']);
         $('rvSummary').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div>${escapeHtml(v)}</div>`).join('');
     }
 
     $('rvCancel').onclick = () => rvDlg.close();
     $('rvBack').onclick = () => { if (rv.at > 0) { rv.at -= 1; renderSteps(); } };
     $('rvNext').onclick = async () => {
+        const { row } = rv;
         const step = rv.steps[rv.at];
+        if (step === 1 && rv.steps.includes(2) && rv.at === 0) {
+            // entering the review step: load the row's medicine and what is near it
+            rvWidget.load({ genericName: row.generic, brandName: row.brand, formName: row.form, strength: row.strength, description: row.description, fromCatalog: false, volumeMl: (row.volumesMl || [])[0] || null });
+            loadSimilar($('rvSimilar'), rvWidget, row.generic, row.brand);
+        }
         if (step === 2) {
             const s = rvWidget.values();
             const miss = MedWidget.missingField(rvWidget, s);
@@ -431,9 +430,9 @@
             return;
         }
         // confirm
-        const { row } = rv;
-        const body = { key: row.key, reason: row.reason, remark: 'available_in_bizbox', note: $('rvNoteText').value.trim(), drug: { label: row.label } };
-        if (row.reason === 'not_in_formulary') {
+        const preset = $('rvPreset').value;
+        const body = { key: row.key, reason: row.reason, remark: preset, note: $('rvNoteText').value.trim(), drug: { label: row.label } };
+        if (RESOLVES(row, preset) && row.reason === 'not_in_formulary') {
             const s = rvWidget.values();
             body.resolve = { generic: s.generic, brand: s.brand, form: s.form, strength: s.strength, description: s.description, volumeMl: s.volumeMl };
         }
@@ -443,13 +442,18 @@
         btn.disabled = false;
         if (!res.ok) { rvError(res.data.message || 'Could not save'); return; }
         rvDlg.close();
-        await showDialog({
-            kind: 'ok', title: 'Recorded',
-            message: res.data.resolvedStatus === 'added_to_formulary' ? `${row.generic}, ${row.description} is now in Bizbox and the row is resolved.`
-                : res.data.resolvedStatus === 'restocked' ? `${row.generic}, ${row.description} is marked Restocked.`
-                : 'The remark was added.',
-        });
-        await reloadAndReopen(row.reason, row.key);
+        if (res.data.resolvedStatus) {
+            await showDialog({
+                kind: 'ok', title: 'Recorded',
+                message: res.data.resolvedStatus === 'added_to_formulary' ? `${row.generic}, ${row.description} is now in Bizbox and the row is resolved.`
+                    : `${row.generic}, ${row.description} is marked Restocked.`,
+            });
+        }
+        await load();
+        // a reviewed row moves tabs; follow it so the reviewer sees the result
+        const fresh = allRows().find((r) => r.reason === row.reason && r.key === row.key);
+        if (fresh && tab !== 'anomaly') { tab = fresh.resolved ? 'resolved' : isReviewed(fresh) ? 'reviewed' : 'review'; render(); }
+        if (fresh && detail.classList.contains('open')) openDetail(fresh, null);
     };
     rvDlg.addEventListener('close', () => rvWidget.hideBoxes());
 

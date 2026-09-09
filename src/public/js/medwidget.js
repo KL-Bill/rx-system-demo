@@ -403,7 +403,11 @@
             <div class="mb-fields">
                 <div class="mb-row">
                     ${field('generic', 'Generic', 'mb-f2')}
-                    ${field('combo', 'Brand / Form / Strength', 'mb-f3', 'search split')}
+                    <div class="search-wrap mb-f3" data-mode="search split nobrand">
+                        <div class="lbl-row"><label for="${p}combo">Brand / Form / Strength</label><label class="mb-check inline"><input type="checkbox" id="${p}nobrand"> No brand</label></div>
+                        <input id="${p}combo" autocomplete="off" placeholder="Enter brand, form, strength…">
+                        <div class="suggestions" id="${sg}combo" style="display:none"></div>
+                    </div>
                 </div>
                 <div class="mb-row mb-row-split" data-mode="split nobrand">
                     ${field('brand', 'Brand', '', 'split')}
@@ -413,12 +417,11 @@
             </div>
             <div id="${p}splitNote" class="mb-splitnote" style="display:none"></div>
             <div class="mb-row mb-row2">
-                <label class="mb-check"><input type="checkbox" id="${p}nobrand"> No brand</label>
                 ${opts.oos ? `<label class="mb-check"><input type="checkbox" id="${p}oos"> Out of stock in Bizbox</label>` : ''}
                 ${opts.vol ? `<div class="mb-qty"><label for="${p}vol">Vol (mL)</label><input id="${p}vol" type="number" min="0" step="any" placeholder="—"></div>` : ''}
                 ${opts.qty ? `<div class="mb-qty"><label for="${p}qty">Qty</label><input id="${p}qty" type="number" min="1" value="1"></div>` : ''}
-                ${opts.sig ? `<div class="mb-sig"><label for="${p}sig">Sig (instructions — optional)</label><input id="${p}sig" autocomplete="off"></div>` : ''}
-            </div>`;
+            </div>
+            ${opts.sig ? `<div class="mb-row mb-row3"><div class="mb-sig"><label for="${p}sig">Sig (instructions — optional)</label><input id="${p}sig" autocomplete="off"></div></div>` : ''}`;
     };
 
     global.MedWidget = { create: createWidget, fetchProduct, missingField, html, formNames: () => formNames };

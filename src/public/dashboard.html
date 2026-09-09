@@ -18,7 +18,7 @@
                 <div class="kpi-i"><div class="n" id="kp-total">0</div><div class="l">To review</div></div>
                 <div class="kpi-i"><div class="n" id="kp-nif">0</div><div class="l">Not in Bizbox</div></div>
                 <div class="kpi-i"><div class="n" id="kp-oos">0</div><div class="l">Out of stock</div></div>
-                <div class="kpi-i"><div class="n warn" id="kp-anom">0</div><div class="l">Anomalies</div></div>
+                <div class="kpi-i"><div class="n warn" id="kp-anom">0</div><div class="l">Prescribed but in Bizbox</div></div>
                 <div class="kpi-i"><div class="n" id="kp-resolved">0</div><div class="l">Resolved</div></div>
             </div>
         </div>
@@ -76,23 +76,17 @@
             </div>
 
             <div id="dAuthWrap" style="display:none">
-                <div class="warnbox">Staff accounts need an admin password to update status or add a remark.</div>
+                <div class="warnbox">Staff accounts need an admin password to update the status.</div>
                 <label>Authorizing password</label>
                 <input id="dAuth" type="password" autocomplete="off">
             </div>
             <div class="errbox" id="dErr"></div>
 
             <!-- the pharmacy's explanation for why this is still open — or how
-                 it was closed. A history, never overwritten. -->
+                 it was closed. A history, never overwritten; set from the table. -->
             <div class="dd-sec">
                 <h4>Remarks</h4>
                 <div id="dRemarks" class="remarks"></div>
-                <div class="remark-form">
-                    <label for="rmkPreset">Add a remark</label>
-                    <select id="rmkPreset"></select>
-                    <textarea id="rmkNote" placeholder="Note (optional) — e.g. PO #1234, expected next week"></textarea>
-                    <div><button class="sm" id="rmkAdd" type="button">Add remark</button></div>
-                </div>
             </div>
 
             <div class="dd-sec">
@@ -127,15 +121,20 @@
         </div>
     </div>
 
-    <!-- ===== "Available in Bizbox" — the careful resolve: what happens, review the medicine, confirm ===== -->
+    <!-- ===== Set remark: pick the remark, (review the medicine when it resolves the row), confirm ===== -->
     <dialog id="resolveDlg" class="dlg dlg-wide" aria-labelledby="rvTitle">
         <div class="dlg-head">
-            <h3 class="dlg-title" id="rvTitle">Available in Bizbox</h3>
+            <h3 class="dlg-title" id="rvTitle">Set remark</h3>
             <span id="rvStatus" class="mb-status"></span>
         </div>
+        <div class="rv-drug" id="rvDrug"></div>
         <div class="steps" id="rvSteps"></div>
         <div class="step-pane" data-step="1">
-            <div class="infobox" id="rvWhat"></div>
+            <label for="rvPreset">Remark</label>
+            <select id="rvPreset"></select>
+            <div class="infobox" id="rvHint" style="margin-top:8px"></div>
+            <label for="rvNoteText">Note (optional)</label>
+            <textarea id="rvNoteText" class="rmk-textarea" placeholder="e.g. PO #1234, expected next week"></textarea>
         </div>
         <div class="step-pane" data-step="2">
             <p class="sub" style="margin:0 0 10px">Check the medicine exactly as it will be added to Bizbox. Fix a typo here, or pick the product Bizbox already lists if this is the same one under another spelling.</p>
@@ -145,8 +144,6 @@
         </div>
         <div class="step-pane" data-step="3">
             <div class="summary-grid" id="rvSummary"></div>
-            <label for="rvNoteText">Note (optional)</label>
-            <textarea id="rvNoteText" class="rmk-textarea" placeholder="e.g. was under a different brand name"></textarea>
             <div id="rvAuthWrap" style="display:none">
                 <div class="warnbox">Staff accounts need an admin password.</div>
                 <label for="rvAuth">Authorizing password</label>
