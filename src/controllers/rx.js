@@ -63,4 +63,21 @@ const create = async (req, res) => {
     }
 };
 
-module.exports = { stations, doctors, suggest, forms, product, create };
+// POST, not GET: the kiosk's receipts travel in the body, never in a URL or a log line
+const history = async (req, res) => {
+    try {
+        const { receipts, q, from, to } = req.body || {};
+        return res.json({ success: true, ...(await rxModel.history({ receipts, q: str(q), from: str(from), to: str(to) })) });
+    } catch (err) { return handle(res, err); }
+};
+
+const reprint = async (req, res) => {
+    try {
+        const out = await rxModel.reprint(req.body || {});
+        // station and id only — patient details stay out of the system log
+        logEvent('rx_reprinted', req, { target: `${out.station || '—'} · ${out.department || '—'}`, details: { id: out.id, printedAt: out.createdAt } });
+        return res.json({ success: true, ...out });
+    } catch (err) { return handle(res, err); }
+};
+
+module.exports = { stations, doctors, suggest, forms, product, create, history, reprint };

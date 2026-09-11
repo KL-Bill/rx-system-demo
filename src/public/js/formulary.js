@@ -13,7 +13,7 @@
     const PAGE = 100;
 
     function mount(root) {
-        let q = '', bizbox = 'all', offset = 0, total = 0, rows = [];
+        let q = '', bizbox = 'all', brand = 'any', offset = 0, total = 0, rows = [];
         let tab = 'list';
 
         root.innerHTML = `
@@ -34,6 +34,11 @@
                             <div class="chip" data-v="yes">In Bizbox</div>
                             <div class="chip" data-v="no">Not in Bizbox</div>
                             <div class="chip" data-v="removed">Removed</div>
+                        </div>
+                        <div class="chips" id="fmBrandChips" style="margin:0">
+                            <div class="chip active" data-v="any">Any brand</div>
+                            <div class="chip" data-v="branded">Branded</div>
+                            <div class="chip" data-v="none">No brand</div>
                         </div>
                         <span class="muted" id="fmCount" style="margin-left:auto;font-size:12.5px"></span>
                     </div>
@@ -103,7 +108,7 @@
 
         // ---------- list ----------
         async function load() {
-            const p = new URLSearchParams({ q, bizbox, limit: PAGE, offset });
+            const p = new URLSearchParams({ q, bizbox, brand, limit: PAGE, offset });
             const res = await api('/api/formulary?' + p);
             if (!res.ok) { $('fmGrid').innerHTML = `<tbody><tr><td class="muted">${esc(res.data.message || 'Could not load')}</td></tr></tbody>`; return; }
             rows = res.data.rows; total = res.data.total;
@@ -136,6 +141,7 @@
         let qt = null;
         $('fmQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { q = $('fmQ').value.trim(); offset = 0; load(); }, 250); };
         $('fmChips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { bizbox = c.dataset.v; $('fmChips').querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c)); offset = 0; load(); }; });
+        $('fmBrandChips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { brand = c.dataset.v; $('fmBrandChips').querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c)); offset = 0; load(); }; });
         $('fmPrev').onclick = () => { offset = Math.max(0, offset - PAGE); load(); };
         $('fmNext').onclick = () => { offset += PAGE; load(); };
 

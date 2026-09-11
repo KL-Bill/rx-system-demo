@@ -26,6 +26,10 @@
 
         <div class="toolbar">
             <div class="tb-search"><input id="q" placeholder="Search patient, doctor, drug…"></div>
+            <div class="period">
+                <label for="from">From</label><input id="from" type="date">
+                <label for="to">To</label><input id="to" type="date">
+            </div>
             <div class="tb-right">
                 <button class="ghost sm" id="filtersBtn">Filters</button>
             </div>
@@ -62,11 +66,6 @@
                     <option value="out_of_stock">Out of stock</option>
                     <option value="normal">Prescribed but In Bizbox</option>
                 </select>
-            </div>
-            <div class="drawer-sec">
-                <h4><span class="n">3</span> Period</h4>
-                <label>From</label><input id="from" type="date">
-                <label>To</label><input id="to" type="date">
             </div>
         </div>
         <div class="drawer-foot">
@@ -113,6 +112,7 @@
     <script src="/js/api.js"></script>
     <script src="/js/shell.js"></script>
     <script src="/js/slip.js"></script>
+    <script src="/js/daterange.js"></script>
     <script src="/js/logs.js"></script>
 </body>
 </html>

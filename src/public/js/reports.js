@@ -36,10 +36,11 @@
         mount: $('filterbar'), storageKey: 'rx_report_filters', onChange: render,
         // the questions the pharmacy asks most, one click each
         quick: [
-            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' } },
-            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' } },
-            { label: 'Prescribed but In Bizbox', filter: { key: 'reason', op: 'is', value: 'normal' } },
-            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } },
+            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' }, group: 'reason' },
+            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' }, group: 'reason' },
+            { label: 'Prescribed but In Bizbox', filter: { key: 'reason', op: 'is', value: 'normal' }, group: 'reason' },
+            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' }, group: 'brand' },
+            { label: 'No brand only', filter: { key: 'brand', op: 'empty' }, group: 'brand' },
             { label: 'No remarks', filter: { key: 'remark', op: 'empty' } },
             { label: 'Still open', filter: { key: 'resolved', op: 'is', value: 'no' } },
         ],
@@ -66,6 +67,9 @@
     // ---------- data ----------
     // the period is the only server-side parameter — it changes what is
     // counted; everything else is a filter over the rows that came back
+    // the report's period: a quick-range menu beside From/To, remembered per browser
+    const periodDr = DateRange.enhance($('from'), $('to'), { storageKey: 'rx_report_period', onChange: () => generate() });
+
     async function generate() {
         const p = new URLSearchParams({ reason: 'all', department: 'all' });
         if ($('from').value) p.set('from', $('from').value);
@@ -94,7 +98,7 @@
     function render() {
         rows = fbar.apply(all);
         fbar.setCount(rows.length, all.length);
-        const period = ($('from').value || $('to').value) ? `${$('from').value || '…'} to ${$('to').value || '…'}` : 'All time';
+        const period = periodDr.label();
         const filt = fbar.summary();
         $('reportMeta').innerHTML = `Period: <b>${escapeHtml(period)}</b> &nbsp;|&nbsp; Filters: <b>${escapeHtml(filt || 'none')}</b> &nbsp;|&nbsp; ${generatedAt ? new Date(generatedAt).toLocaleString() : ''}`;
 

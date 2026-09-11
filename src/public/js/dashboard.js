@@ -63,10 +63,11 @@
         // the reason this system exists: which BRANDS are in demand that Bizbox
         // lacks. Unbranded requests are one click away from disappearing.
         quick: [
-            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' } },
+            { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' }, group: 'brand' },
+            { label: 'No brand only', filter: { key: 'brand', op: 'empty' }, group: 'brand' },
             { label: 'No remarks', filter: { key: 'remark', op: 'empty' } },
-            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' } },
-            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' } },
+            { label: 'Not in Bizbox', filter: { key: 'reason', op: 'is', value: 'not_in_formulary' }, group: 'reason' },
+            { label: 'Out of stock', filter: { key: 'reason', op: 'is', value: 'out_of_stock' }, group: 'reason' },
         ],
         fields: [
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [
@@ -87,12 +88,26 @@
         ],
     });
 
+    // ---------- period ----------
+    // Which prescriptions are counted — unlike the "Last prescribed" filter,
+    // which only picks rows. Remembered per browser; All time by default.
+    DateRange.enhance($('pFrom'), $('pTo'), { storageKey: 'rx_review_period', onChange: () => load() });
+    ['pFrom', 'pTo'].forEach((id) => { $(id).addEventListener('change', () => load()); });
+    const periodQs = () => {
+        const p = new URLSearchParams();
+        if ($('pFrom').value) p.set('from', $('pFrom').value);
+        if ($('pTo').value) p.set('to', $('pTo').value);
+        const s = p.toString();
+        return s ? '&' + s : '';
+    };
+
     // ---------- data ----------
-    // everything once; department and the rest are filters over these rows
+    // everything once for the period; department and the rest are filters over these rows
     async function load() {
+        const per = periodQs();
         const [a, b] = await Promise.all([
-            api('/api/pharmacy/review?reason=both'),
-            api('/api/pharmacy/review?reason=normal'),
+            api('/api/pharmacy/review?reason=both' + per),
+            api('/api/pharmacy/review?reason=normal' + per),
         ]);
         if (!a.ok || !b.ok) { window.location.href = '/login'; return; }
         problems = a.data.review;

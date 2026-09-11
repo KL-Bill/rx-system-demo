@@ -26,6 +26,12 @@
         <div class="toolbar">
             <div class="tabs" id="tabs"></div>
             <div class="tb-search"><input id="search" placeholder="Search generic, brand, form, strength…"></div>
+            <!-- Period: which prescriptions are counted. # RX, # Prescribed and
+                 the tab counts all follow it. -->
+            <div class="period" title="Only prescriptions written in this period are counted">
+                <label for="pFrom">Period</label><input id="pFrom" type="date">
+                <label for="pTo">to</label><input id="pTo" type="date">
+            </div>
             <div class="tb-right" id="medLink"></div>
         </div>
 
@@ -161,6 +167,7 @@
     <script src="/js/shell.js"></script>
     <script src="/js/split.js"></script>
     <script src="/js/medwidget.js"></script>
+    <script src="/js/daterange.js"></script>
     <script src="/js/filterbar.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>

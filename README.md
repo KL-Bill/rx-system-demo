@@ -9,6 +9,105 @@ Rx generator + pharmacy demand tracker. Express app backed by Postgres, containe
 - Podman (app container + Postgres container, one pod) — Windows Scheduled Tasks handle boot-start and backups; Podman's own `restartPolicy: Always` handles crash-restart
 - Separate Electron kiosk client: `rx-system-client` (not this repo)
 
+## Two medicine lists, and why the wording matters
+
+**Bizbox** is the hospital's main dispensing system. It is not this app and
+this app cannot talk to it. **The RX Formulary** is this app's own copy of the
+medicine list, and every product in it is flagged either *In Bizbox* or *not*.
+
+That flag is the whole point of the system. A nurse only prints a slip here
+when Bizbox will not release the medicine — because Bizbox does not carry it,
+or carries it but has none in stock. The pharmacy then reviews what keeps
+being prescribed outside Bizbox, which is the evidence for stocking it.
+
+So the two lists drift apart as Bizbox gains and loses products, and the
+**Bizbox import** is what brings the RX Formulary back in step. Everything
+below uses these two names precisely; "Formulary" on its own is the old
+wording and no longer appears in the UI.
+
+### What each role sees
+
+**Nurse** — `/`, no login, one station per kiosk (`/?station=st-er` pins it).
+Pick the generic, then the brand, form and strength as Bizbox writes them, in
+a single search box. Tick **No brand** for an unbranded medicine, which swaps
+that box for Form and Strength. Type something Bizbox does not list and three
+fields open underneath, prefilled by a splitter, for the nurse to confirm
+before adding — so a new medicine is still stored as clean brand / form /
+strength, never as one blob of text. Picking a medicine that *is* in Bizbox
+asks "are you sure?" first. The prescription is recorded on the first **Print**
+click, not on Add and not on New patient.
+
+**Previous prescriptions** on the nurse page finds a slip a station lost and
+reprints it: search by patient, doctor, medicine or address, within a date
+range. A kiosk only ever sees what *it* printed. Each save hands the kiosk an
+unguessable receipt, the kiosk keeps its receipts in its own browser storage,
+and the server answers only for receipts it is shown, so another computer on
+the network gets nothing and no PIN is needed. A reprint records no new
+prescription, so demand is never counted twice; the copy is identical to the
+original, date and time included, and the reprint is logged for IT with the
+station and id only. Older prescriptions, or
+ones printed on another kiosk, the pharmacy can still find and reprint from
+its Logs page.
+
+**Pharmacy** — `/dashboard` (review), `/reports`, `/logs`, and `/medicines`
+for the head only. Review has four tabs: To review, Reviewed, Prescribed but
+In Bizbox, Resolved. Each row carries a **Remarks** history explaining why it
+is still open; "Set remark" opens a short stepper, and the preset *Available
+in Bizbox* also resolves the row after showing exactly what will change.
+Review has a **Period** that decides which prescriptions are counted, so the
+tab counts, # RX and # Prescribed all follow it. Both review and reports have
+a filter bar with one-click presets (Branded only, No brand only, No remarks,
+and so on) that persist per browser, so each kiosk keeps its own view; presets
+that contradict each other switch each other off. Reports has a print preview
+with paper size, orientation, text size, margins and column choices, also
+remembered per browser.
+
+Every date filter in the app takes a range, with a quick menu beside it:
+Today, Last 7 days, Last 30 days, This month, Last month, All time.
+
+**IT** — `/it`. Tabs for the system log, pharmacy audit, accounts,
+prescriptions, backups, **Medicines**, and **Doctors & Stations**. Renaming a
+doctor offers to correct past prescriptions written under the old name, since
+reports group by that name; the same applies to a station's department.
+
+### Keeping the RX Formulary in step
+
+The Medicines page (pharmacy head at `/medicines`, IT on its Medicines tab)
+has two tabs:
+
+- **RX Formulary** — search the whole list, fix a spelling, merge a duplicate
+  into the entry you keep, or add a single medicine by hand.
+- **Import from Bizbox** — upload the Bizbox export (`.xlsx` or `.csv`; two
+  columns, generic and description). Confirm which column is which, watch the
+  analysis run, then review the result in four plain groups: *Needs your
+  decision*, *New to RX Formulary*, *Now marked In Bizbox*, and *Already in RX
+  Formulary*. Only rows the import could not settle need a person, and each
+  says why in words. Nothing is written until **Apply import**; choices are
+  saved as you go, so you can leave and come back, or discard the file.
+
+The import never removes or unmarks anything. Products marked In Bizbox that
+the file does not list are reported at the end, for information only. The job
+lives in the database rather than in memory, because the app runs several
+workers — which is also why progress survives a refresh.
+
+### Soft delete
+
+Nothing removed on a page is gone for good. Deleted prescriptions, removed
+doctors, and duplicates merged away in the RX Formulary all keep their rows,
+hidden from every list, count, report and search, and each has a Restore:
+the **Deleted** view on the IT prescriptions tab, **Show removed** on Doctors,
+and the **Removed** chip on the RX Formulary. Pharmacy accounts were already
+soft — they deactivate rather than delete.
+
+### Two tiers of IT
+
+An IT account created at the server console with `create-admin` is **master
+IT**: it alone sees the Accounts tab and can create, reset or deactivate
+logins, including other IT accounts. An IT account created from the IT page is
+not master — it gets the whole console except Accounts. Two guards prevent a
+lock-out: you cannot deactivate your own account, and the last active master
+IT account cannot be deactivated at all.
+
 ## Deploying (this PC, or any other Windows machine)
 
 A fresh `git clone` already has everything needed to run: the drug catalog
@@ -240,7 +339,9 @@ way to hand an existing machine over to another profile.
 ### Redeploying after a code change
 
 ```powershell
+.\scripts\backup-db.ps1                       # safety copy before anything
 git pull
+# ...if the release changed the schema, run its migration HERE — see below...
 podman build -t localhost/rx-system:latest .
 podman kube play pod.yaml --replace
 ```
@@ -249,8 +350,31 @@ Code lives *inside* the image (`COPY . .` in the Dockerfile) — editing files
 in the repo folder on the server changes nothing until you rebuild. That's why
 this is a manual step and not just a `git pull`.
 
+**If the release changed the schema, migrate BEFORE the rebuild.** The
+September 2026 release (Bizbox) did, so any server still on an older build
+needs the extra pair of commands below. Migrations only add columns and
+tables, so the old code keeps running happily beside them — which is the whole
+point of going first. Rebuild first instead and the new code starts against
+the old schema and throws until the migration lands.
+
+```powershell
+# copy the script into the container that is still running the OLD image,
+# which does not contain it yet — `git pull` updated the repo folder on disk,
+# not the image
+podman cp scripts\migrate-add-bizbox-columns.js rx-system-app:/app/scripts/
+
+# run it in the container: the database only listens inside the pod, and the
+# app container already holds the right PGUSER/PGPASSWORD. From the Windows
+# host the same script fails on credentials.
+podman exec rx-system-app node scripts/migrate-add-bizbox-columns.js
+```
+
+It prints `Migration done. Descriptions stitched for N existing product(s)`.
+Safe to re-run. Once the new image is built the copy is no longer needed —
+later runs are just `podman exec rx-system-app npm run migrate:bizbox`.
+
 **If the server has no git clone**, copy the changed files in by hand (USB,
-network share, whatever) and run the same two podman commands. Only the files
+network share, whatever) and run the same `build` and `kube play`. Only the files
 that actually changed need to go over — there is no need to replace the whole
 folder, and replacing it wholesale is how people lose their config.
 
@@ -319,11 +443,24 @@ they never drop data, and they're safe to re-run:
 ```powershell
 podman exec rx-system-app node scripts/migrate-add-it.js              # IT page (older installs)
 podman exec rx-system-app node scripts/migrate-add-search-indexes.js  # medicine search indexes
+podman exec rx-system-app npm run migrate:bizbox                      # Sept 2026 Bizbox release
 ```
 
 You only need these on a database that already exists and is staying. A
 database created fresh from `db/schema.sql` already has everything in them —
 skip them entirely on a from-scratch build.
+
+`migrate:bizbox` is one script covering the whole September 2026 release:
+the Bizbox description columns on `strengths`, the `review_remarks`,
+`catalog_imports` and `catalog_import_exclusions` tables, `users.is_master`
+for the two IT tiers, and the soft-delete columns on prescriptions, doctors
+and strengths. It backfills a stitched description for every existing product
+and marks every IT account that predates it as master. Additive only: nothing
+is dropped, renamed or retyped, and re-running it is a no-op.
+
+Note that on a container built from an older image the script is not present
+yet, so it needs the `podman cp` shown in the redeploy section above. That is
+the only reason the Bizbox line differs from the two above it.
 
 The Electron kiosk client (`rx-system-client`) shows a "Connecting to server…"
 splash screen with a 90-second grace period before it tells staff to contact
@@ -365,6 +502,8 @@ volumes belonging to every other project on the machine, not just this one.
 | Restart | `podman kube play pod.yaml --replace` |
 | Stop | `podman kube down pod.yaml` |
 | Create another admin login | `podman exec rx-system-app npm run create-admin -- <username> <password> [role]` |
+| Create a **master** IT login | same command with role `it` — only console-made IT accounts manage accounts |
+| Bring the RX Formulary in step with Bizbox | no command: sign in as the pharmacy head or IT, open **Medicines → Import from Bizbox**, upload the export |
 | Manual backup | `.\scripts\backup-db.ps1` |
 | Check scheduled tasks | `Get-ScheduledTask rx-system-start, rx-system-backup \| Get-ScheduledTaskInfo` |
 | Why didn't the pod start at boot? | `Get-Content logs\start-pod.log -Tail 40` |
@@ -456,3 +595,8 @@ npm run watch                 # nodemon
 ## Not yet done
 
 - CI/CD (auto-deploy on git push) — deliberately out of scope for now, revisit later.
+- The staff manuals in `docs/*.docx` (Nurse, Pharmacy, IT, Overview,
+  Troubleshooting, Codebase) still describe the pre-Bizbox app: the old
+  "Formulary" wording, the four-box medicine picker, and no Medicines page,
+  remarks, filter bar, print preview or soft delete. Regenerate them with the
+  scripts in `docs/screenshot-tools/` before handing them to staff.

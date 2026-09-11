@@ -1,6 +1,26 @@
+const crypto = require('crypto');
 const db = require('../_db/db_functions');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
+
+// ----- kiosk receipts -----
+// The nurse page has no login, yet "Previous prescriptions" shows patient
+// names. So a kiosk only ever sees what it printed itself: each save hands the
+// kiosk an unguessable receipt for that one prescription (an HMAC of its id
+// under the server secret), the kiosk keeps its receipts, and the history and
+// reprint calls answer only for receipts they are shown. Another computer on
+// the network has no receipts, so it gets nothing. No table: the receipt can
+// always be recomputed from the id, so there is nothing to store or leak.
+const SECRET = process.env.SECRET_KEY || 'demo-secret-key';
+const receiptFor = (id) => crypto.createHmac('sha256', SECRET).update('rx-receipt:' + id).digest('base64url').slice(0, 32);
+const receiptOk = (id, receipt) => {
+    if (typeof id !== 'string' || typeof receipt !== 'string') return false;
+    const want = Buffer.from(receiptFor(id));
+    const got = Buffer.from(receipt);
+    return got.length === want.length && crypto.timingSafeEqual(got, want);
+};
+const MAX_RECEIPTS = 1000;          // what one kiosk may present at once
+const MAX_RESULTS = 200;
 
 const listStations = () => db.getStations();
 const listDoctors = () => db.getDoctors();
@@ -66,7 +86,7 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
     }));
 
     const doc = doctor || {};
-    await db.addPrescription({
+    const saved = await db.addPrescription({
         stationId,
         department: station.department,
         doctor: { name: (doc.name || '').trim(), license: (doc.license || '').trim(), ptr: (doc.ptr || '').trim(), s2: (doc.s2 || '').trim() },
@@ -74,7 +94,39 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
         items: resolved,
     });
 
-    return { station, items: resolved };
+    // the kiosk keeps this receipt; it is the only way back to this prescription from the nurse page
+    return { station, items: resolved, id: saved.id, createdAt: saved.createdAt, receipt: receiptFor(saved.id) };
 };
 
-module.exports = { listStations, listDoctors, suggest, forms, getProduct, createRx };
+// "Previous prescriptions": search what this kiosk printed.
+//   receipts: [{ id, receipt }] from the kiosk's own storage
+//   q:        patient, address, doctor or any medicine
+//   from/to:  YYYY-MM-DD, either may be blank
+const history = async ({ receipts, q, from, to }) => {
+    if (!Array.isArray(receipts)) throw httpError(400, 'No receipts');
+    const ids = receipts.slice(0, MAX_RECEIPTS).filter((r) => r && receiptOk(r.id, r.receipt)).map((r) => r.id);
+    if (!ids.length) return { prescriptions: [], total: 0, capped: false };
+
+    const start = from ? new Date(from + 'T00:00:00').getTime() : null;
+    const end = to ? new Date(to + 'T23:59:59.999').getTime() : null;
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const hay = (rx) => [rx.patient, rx.address, rx.age, rx.sex, rx.doctor && rx.doctor.name, rx.station, rx.department,
+        ...(rx.items || []).map((i) => `${i.genericName} ${i.brandName} ${i.formName} ${i.strength} ${i.description || ''}`)]
+        .join(' ').toLowerCase();
+
+    const all = (await db.getPrescriptionsByIds(ids))
+        .filter((rx) => (start == null || rx.createdAt >= start) && (end == null || rx.createdAt <= end))
+        .filter((rx) => { const h = hay(rx); return words.every((w) => h.includes(w)); });
+    return { prescriptions: all.slice(0, MAX_RESULTS), total: all.length, capped: all.length > MAX_RESULTS };
+};
+
+// a reprint records nothing new (demand is never counted twice); it is only
+// checked and logged
+const reprint = async ({ id, receipt }) => {
+    if (!receiptOk(id, receipt)) throw httpError(403, 'This prescription was not printed on this computer');
+    const [rx] = await db.getPrescriptionsByIds([id]);
+    if (!rx) throw httpError(404, 'This prescription is no longer available — it may have been deleted');
+    return { id: rx.id, station: rx.station, department: rx.department, createdAt: rx.createdAt };
+};
+
+module.exports = { listStations, listDoctors, suggest, forms, getProduct, createRx, history, reprint };

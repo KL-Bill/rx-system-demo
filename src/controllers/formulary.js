@@ -8,8 +8,8 @@ const handle = (res, err) => {
 
 const search = async (req, res) => {
     try {
-        const { q, bizbox, limit, offset } = req.query;
-        return res.json({ success: true, ...(await formulary.search({ q, bizbox, limit, offset })) });
+        const { q, bizbox, brand, limit, offset } = req.query;
+        return res.json({ success: true, ...(await formulary.search({ q, bizbox, brand, limit, offset })) });
     } catch (err) { return handle(res, err); }
 };
 const get = async (req, res) => {

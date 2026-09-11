@@ -197,7 +197,7 @@ table.dense tr.selected td { background: var(--navy-soft); }
 .fclear:hover { background: #f2f6fd; color: var(--red); }
 .fcount { margin-left: auto; font-size: 12px; color: var(--muted); }
 .fpop {
-    position: absolute; z-index: 45; width: 640px; max-width: calc(100vw - 120px);
+    position: absolute; z-index: 45; width: 860px; max-width: calc(100vw - 120px);
     background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
     box-shadow: 0 14px 40px rgba(20, 48, 107, .16); display: grid; gap: 10px;
 }
@@ -335,3 +335,11 @@ table.dense tr.selected td { background: var(--navy-soft); }
 .med-tabs { margin-bottom: 14px; }
 .fm-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 12px; }
 .fm-grid th, .fm-grid td { font-size: 12.5px; }
+
+/* --- date ranges (js/daterange.js) --- */
+select.dr-quick { width: auto; padding: 7px 10px; font-size: 13px; }
+.period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.period label { margin: 0; font-size: 12px; }
+.period input[type="date"] { width: auto; padding: 7px 10px; font-size: 13px; }
+.fpop-row .f-val input[type="date"] { flex: 0 0 140px; width: 140px; }
+.fpop-row .f-val select.dr-quick { flex: 0 1 auto; width: auto; }

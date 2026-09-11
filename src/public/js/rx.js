@@ -304,6 +304,7 @@
             }
             savedRxId = true;
             saveDoctor();
+            keepReceipt(res.data);
         }
         $('print-area').innerHTML = slipPagesHtml(rxData());
         printRestored = false;
@@ -312,6 +313,125 @@
         // never fire it. Whichever lands first wins, the other is a no-op.
         restoreFocusAfterPrint();
     };
+
+    // ----- previous prescriptions: this kiosk's own, to reprint a lost slip -----
+    // Every save returns a receipt; the kiosk keeps them here and the server
+    // answers history/reprint only for receipts it is shown. So this list is
+    // exactly what this computer printed — nothing from anywhere else.
+    const RECEIPTS_KEY = 'rx_receipts';
+    const KEEP_DAYS = 90, KEEP_MAX = 1000;
+    function readReceipts() {
+        try { return JSON.parse(localStorage.getItem(RECEIPTS_KEY) || '[]') || []; } catch { return []; }
+    }
+    function keepReceipt(saved) {
+        if (!saved || !saved.id || !saved.receipt) return;
+        const cutoff = Date.now() - KEEP_DAYS * 86400000;
+        const list = [{ id: saved.id, receipt: saved.receipt, at: saved.createdAt || Date.now() }]
+            .concat(readReceipts().filter((r) => r.id !== saved.id && r.at >= cutoff))
+            .slice(0, KEEP_MAX);
+        try { localStorage.setItem(RECEIPTS_KEY, JSON.stringify(list)); } catch { /* storage full: history just won't show it */ }
+    }
+
+    const histDlg = $('histDlg');
+    const histDr = DateRange.enhance($('hFrom'), $('hTo'), { defaultPreset: '7', onChange: () => loadHistory() });
+    let histRows = [], histCurrent = null, histSeq = 0;
+    const fmtWhen = (t) => new Date(t).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit' });
+
+    // the slip exactly as it was first printed, original date and time included
+    function historySlip(p) {
+        const d = new Date(p.createdAt);
+        return {
+            date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
+            time: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            patient: p.patient, address: p.address, age: p.age, sex: p.sex,
+            doctor: p.doctor || {},
+            meds: (p.items || []).map((it) => ({ label: medLabelOf(it), quantity: it.quantity, sig: it.sig || '', cls: reasonCls(it.reason) })),
+        };
+    }
+
+    function showHistList() {
+        histCurrent = null;
+        $('histList').style.display = ''; $('histView').style.display = 'none';
+        $('histBack').style.display = 'none'; $('histReprint').style.display = 'none';
+    }
+    async function loadHistory() {
+        const receipts = readReceipts();
+        const mine = ++histSeq;
+        if (!receipts.length) {
+            histRows = [];
+            $('histTbl').innerHTML = '';
+            $('histCount').textContent = '';
+            $('histEmpty').innerHTML = 'Nothing printed on this computer yet. Prescriptions appear here from the next one you print.<br>For an older prescription, ask the pharmacy — they can find and reprint any prescription.';
+            $('histEmpty').style.display = 'block';
+            return;
+        }
+        const res = await api('/api/rx/history', { body: { receipts: receipts.map((r) => ({ id: r.id, receipt: r.receipt })), q: $('histQ').value.trim(), from: $('hFrom').value, to: $('hTo').value } });
+        if (mine !== histSeq) return;                  // a newer search already answered
+        if (!res.ok) {
+            $('histTbl').innerHTML = '';
+            $('histEmpty').textContent = res.data.message || 'Could not reach the server. Try again in a moment.';
+            $('histEmpty').style.display = 'block';
+            return;
+        }
+        histRows = res.data.prescriptions || [];
+        const n = res.data.total || 0;
+        $('histCount').textContent = n ? `${n} prescription${n === 1 ? '' : 's'}${res.data.capped ? ` — showing the newest ${histRows.length}, search to narrow` : ''}` : '';
+        $('histEmpty').textContent = 'No prescriptions match. Try a wider date range, or fewer words.';
+        $('histEmpty').style.display = histRows.length ? 'none' : 'block';
+        $('histTbl').innerHTML = histRows.map((p, i) => {
+            const meds = (p.items || []).map((it) => medLabelOf(it));
+            return `<tr class="clickable" data-i="${i}">
+                <td>${escapeHtml(fmtWhen(p.createdAt))}</td>
+                <td><b>${escapeHtml(p.patient || '—')}</b>${p.age || p.sex ? `<div class="meds">${escapeHtml([p.age, p.sex].filter(Boolean).join(' · '))}</div>` : ''}</td>
+                <td>${escapeHtml(drName(p.doctor && p.doctor.name) || '—')}</td>
+                <td>${escapeHtml(meds[0] || '')}${meds.length > 1 ? `<div class="meds">+${meds.length - 1} more</div>` : ''}</td>
+                <td class="meds">${escapeHtml(p.station || '')}</td>
+            </tr>`;
+        }).join('');
+        $('histTbl').querySelectorAll('tr').forEach((tr) => { tr.onclick = () => openHistory(histRows[Number(tr.dataset.i)]); });
+    }
+    function openHistory(p) {
+        histCurrent = p;
+        $('histMeta').innerHTML = `<b>${escapeHtml(p.patient || 'No patient name')}</b> · ${escapeHtml(fmtWhen(p.createdAt))} · ${escapeHtml(drName(p.doctor && p.doctor.name) || '—')} · ${escapeHtml(p.station || '')}`;
+        $('histSlip').innerHTML = slipPagesHtml(historySlip(p));
+        $('histList').style.display = 'none'; $('histView').style.display = '';
+        $('histBack').style.display = ''; $('histReprint').style.display = '';
+        $('histReprint').focus();
+    }
+
+    let histT = null;
+    $('histQ').addEventListener('input', () => { clearTimeout(histT); histT = setTimeout(loadHistory, 250); });
+    ['hFrom', 'hTo'].forEach((id) => { $(id).addEventListener('change', () => loadHistory()); });
+    $('histBtn').onclick = () => {
+        $('histQ').value = '';
+        histDr.apply('7');                              // each visit starts on the last week
+        showHistList();
+        histDlg.showModal();
+        $('histQ').focus();
+        loadHistory();
+    };
+    $('histBack').onclick = () => { showHistList(); $('histQ').focus(); };
+    $('histClose').onclick = () => histDlg.close();
+    $('histReprint').onclick = async () => {
+        const p = histCurrent;
+        if (!p) return;
+        const r = readReceipts().find((x) => x.id === p.id);
+        const btn = $('histReprint'); btn.disabled = true;
+        const res = await api('/api/rx/reprint', { body: { id: p.id, receipt: r && r.receipt } });
+        btn.disabled = false;
+        // same rule as a first print: nothing prints unless the server recorded it
+        if (!res.ok) {
+            await showDialog({ kind: 'danger', title: 'Could not reprint', message: res.data.message || 'The reprint could not be recorded, so nothing was printed. Try again in a moment.' });
+            return;
+        }
+        $('print-area').innerHTML = slipPagesHtml(historySlip(p));
+        histDlg.close();
+        printRestored = false;
+        window.print();
+        restoreFocusAfterPrint();
+    };
+    histDlg.addEventListener('close', () => { histCurrent = null; });
+
     $('clearBtn').onclick = () => {
         items.length = 0; savedRxId = null;
         ['patient', 'address', 'age', 'sex'].forEach((id) => { $(id).value = ''; });

@@ -440,6 +440,21 @@ const getPrescriptions = async () => {
     }));
 };
 
+// The nurse's "Previous prescriptions": only the ids a kiosk holds receipts
+// for, never a query over everything. Live rows only, newest first.
+const getPrescriptionsByIds = async (ids) => {
+    if (!ids.length) return [];
+    const { rows } = await pool.query(`
+        SELECT p.id, p.station_id, p.department, p.created_at, p.payload, s.name AS station
+        FROM prescriptions p LEFT JOIN stations s ON s.id = p.station_id
+        WHERE p.id = ANY($1) AND p.deleted_at IS NULL
+        ORDER BY p.created_at DESC`, [ids]);
+    return rows.map((r) => ({
+        id: r.id, stationId: r.station_id, station: r.station, department: r.department,
+        createdAt: toNum(r.created_at), ...r.payload,
+    }));
+};
+
 // IT-facing listing: newest first, filtered by date, paged. Separate from
 // getPrescriptions() above, which loads every row for demand/pharmacy
 // aggregation and has no business being paged.
@@ -577,13 +592,16 @@ const findSimilarProducts = async ({ generic, brand = '' }) => {
 // The app's own medicine list, as the pharmacy head and IT see it on the
 // Medicines page: search, fix a row, merge a duplicate into the row to keep.
 // bizbox: 'all' | 'yes' | 'no' | 'removed' (the soft-deleted rows, for restoring)
-const searchCatalog = async ({ q = '', bizbox = 'all', limit = 100, offset = 0 } = {}) => {
+// brand: 'any' | 'branded' | 'none' (unbranded products only)
+const searchCatalog = async ({ q = '', bizbox = 'all', brand = 'any', limit = 100, offset = 0 } = {}) => {
     const params = [];
     const where = [bizbox === 'removed' ? 's.deleted_at IS NOT NULL' : 's.deleted_at IS NULL'];
     for (const w of norm(q).split(/\s+/).filter(Boolean)) {
         params.push(w);
         where.push(`strpos(lower(concat_ws(' ', g.generic_name, b.brand_name, f.form_name, s.label, s.description)), $${params.length}) > 0`);
     }
+    if (brand === 'branded') where.push("b.brand_name <> ''");
+    if (brand === 'none') where.push("b.brand_name = ''");
     if (bizbox === 'yes') where.push('s.ihf');
     if (bizbox === 'no') where.push('NOT s.ihf');
     const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -858,7 +876,7 @@ module.exports = {
     getDoctor, getDoctorsAll, insertDoctor, updateDoctor, deleteDoctor, restoreDoctor, countPrescriptionsByDoctorName, renamePrescriptionDoctor,
     insertStation, updateStation, countPrescriptionsByStation, renameStationDepartment,
     strengthLabel, getGenerics, suggestOptions, findProduct, findProductByDescription, getFormNames, addToCatalog,
-    addPrescription, getPrescriptions,
+    addPrescription, getPrescriptions, getPrescriptionsByIds,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
     addRemark, getRemarks, getAllRemarks, findSimilarProducts,

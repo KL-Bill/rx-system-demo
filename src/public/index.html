@@ -55,7 +55,14 @@
                 <div class="builder">
                     <div class="builder-head">
                         <span>Add medicine</span>
-                        <span id="mbStatus" class="mb-status"></span>
+                        <span class="bh-right">
+                            <span id="mbStatus" class="mb-status"></span>
+                            <!-- subtle on purpose: a lost slip is the exception, not the flow -->
+                            <button id="histBtn" class="link-btn" type="button" title="Find and reprint a prescription printed on this computer">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+                                Previous prescriptions
+                            </button>
+                        </span>
                     </div>
                     <p class="sub" style="margin:0 0 12px">Type the generic, then the brand, form and strength as Bizbox lists it — pick from the suggestions. Type something new to add a medicine Bizbox does not have.</p>
                     <div class="mb-fields">
@@ -194,6 +201,41 @@
         </div>
     </dialog>
 
+    <!-- ===== previous prescriptions: what THIS kiosk printed, to reprint a lost slip ===== -->
+    <dialog id="histDlg" class="dlg dlg-hist" aria-labelledby="histTitle">
+        <div class="dlg-head">
+            <h3 class="dlg-title" id="histTitle">Previous prescriptions</h3>
+            <span class="muted" style="font-size:12.5px">Printed on this computer</span>
+        </div>
+        <div id="histList">
+            <div class="hist-bar">
+                <input id="histQ" autocomplete="off" placeholder="Search patient, doctor, medicine, address…">
+                <div class="period">
+                    <label for="hFrom">From</label><input id="hFrom" type="date">
+                    <label for="hTo">To</label><input id="hTo" type="date">
+                </div>
+            </div>
+            <div class="result-count" id="histCount"></div>
+            <div class="tbl-wrap hist-wrap">
+                <table class="dense">
+                    <thead><tr><th>When</th><th>Patient</th><th>Doctor</th><th>Medicines</th><th>Station</th></tr></thead>
+                    <tbody id="histTbl"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="histEmpty" style="display:none"></div>
+        </div>
+        <div id="histView" style="display:none">
+            <div class="hist-meta" id="histMeta"></div>
+            <div class="hist-slip" id="histSlip"></div>
+        </div>
+        <div class="dlg-actions">
+            <button class="ghost" id="histBack" type="button" style="display:none">‹ Back to the list</button>
+            <span style="flex:1"></span>
+            <button class="ghost" id="histClose" type="button">Close</button>
+            <button id="histReprint" type="button" style="display:none">Reprint</button>
+        </div>
+    </dialog>
+
     <div id="print-area"></div>
 
     <script src="/js/api.js"></script>
@@ -201,6 +243,7 @@
     <script src="/js/slip.js"></script>
     <script src="/js/split.js"></script>
     <script src="/js/medwidget.js"></script>
+    <script src="/js/daterange.js"></script>
     <script src="/js/rx.js"></script>
 </body>
 </html>

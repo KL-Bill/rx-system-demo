@@ -297,3 +297,34 @@ input.locked { background: #f3f6fb; color: var(--navy); font-weight: 600; }
     width: 16px; height: 16px; padding: 0; margin: 0; border: none; border-radius: 3px;
     box-shadow: none !important; transition: none; accent-color: var(--navy); flex: none;
 }
+
+/* ===== previous prescriptions (nurse) ===== */
+dialog.dlg-hist { max-width: min(1100px, calc(100vw - 32px)); width: 100%; }
+.hist-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.hist-bar > input { flex: 1 1 280px; }
+.hist-bar .period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hist-bar .period label { margin: 0; font-size: 12px; }
+.hist-bar .period input { width: auto; padding: 8px 10px; font-size: 13px; }
+.hist-bar select.dr-quick { width: auto; padding: 8px 10px; font-size: 13px; }
+.hist-wrap { max-height: 52vh; }
+.hist-wrap table { min-width: 0 !important; }
+.hist-wrap td { font-size: 13px; vertical-align: top; }
+.hist-wrap td .meds { color: var(--muted); font-size: 12px; }
+.hist-meta { font-size: 13px; margin-bottom: 10px; color: var(--ink); }
+.hist-meta .note { color: var(--amber); font-weight: 600; margin-top: 4px; }
+.hist-slip { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; background: #eef1f6; border-radius: 12px; padding: 14px; max-height: 60vh; overflow: auto; }
+.hist-slip .rx-page { margin: 0; box-shadow: 0 4px 16px rgba(20, 48, 107, .12); }
+
+/* Add medicine header: status line + the quiet "Previous prescriptions" link */
+.bh-right { display: inline-flex; align-items: center; gap: 16px; }
+button.link-btn {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 0;
+    background: none; color: var(--muted); font-size: 12.5px; font-weight: 600; border-radius: 0;
+}
+button.link-btn:hover { background: none; color: var(--navy); text-decoration: underline; }
+button.link-btn:active { transform: none; }
+/* the single line (Generic · Brand/Form/Strength · Out of stock · Vol · Qty)
+   must hold on a 1366px kiosk screen too: smaller starting widths, same growth */
+.mb-fields > .mb-row:first-child .mb-f2 { flex-basis: 160px; }
+.mb-fields > .mb-row:first-child .mb-f3 { flex-basis: 200px; }
+.mb-fields > .mb-row:first-child .mb-qty { flex: 0 0 70px; }

@@ -7,6 +7,7 @@
     mountRail({ mode: 'pharmacy', active: 'logs' });
     $('railUser').textContent = `${me.data.user.name} · ${me.data.user.role}`;
     initDrawer('filtersBtn');
+    const periodDr = DateRange.enhance($('from'), $('to'), { storageKey: 'rx_logs_period' });
 
     let list = [], pages = [], currentRx = null;
     const detail = $('detail');
@@ -163,7 +164,7 @@
     $('refreshBtn').onclick = load;
     $('clearFilters').onclick = () => {
         $('department').value = 'all'; $('reason').value = 'all';
-        $('from').value = ''; $('to').value = ''; $('q').value = '';
+        periodDr.apply('all'); $('q').value = '';
         load();
     };
 

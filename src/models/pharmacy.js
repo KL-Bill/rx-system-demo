@@ -12,7 +12,8 @@ const authorizeMutation = async (actor, authorizerPassword) => {
     return admin;
 };
 
-const getReview = ({ reason, department } = {}) => demand.aggregate({ reason, department });
+// from/to: the Review page's Period — only prescriptions written in it are counted
+const getReview = ({ reason, department, from, to } = {}) => demand.aggregate({ reason, department, from, to });
 
 // full prescription log for auditing (newest first)
 const listPrescriptions = async ({ from, to, department, reason, q } = {}) => {

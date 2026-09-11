@@ -6,9 +6,15 @@ const handle = (res, err) => {
     return res.status(500).json({ success: false, message: 'Server error' });
 };
 
+// YYYY-MM-DD from the page -> the first / last millisecond of that day
+const dayStart = (s) => (s ? new Date(s + 'T00:00:00').getTime() : undefined);
+const dayEnd = (s) => (s ? new Date(s + 'T23:59:59.999').getTime() : undefined);
+
 const review = async (req, res) => {
-    try { return res.json({ success: true, review: await pharmacy.getReview({ reason: req.query.reason, department: req.query.department }) }); }
-    catch (err) { return handle(res, err); }
+    try {
+        const { reason, department, from, to } = req.query;
+        return res.json({ success: true, review: await pharmacy.getReview({ reason, department, from: dayStart(from), to: dayEnd(to) }) });
+    } catch (err) { return handle(res, err); }
 };
 
 const detail = async (req, res) => {

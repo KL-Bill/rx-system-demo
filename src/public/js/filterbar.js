@@ -7,9 +7,10 @@
  * kiosk client opens the way it was left.
  *
  *   FilterBar.create({ mount, storageKey, fields, onChange, quick })
- *     quick: [{ label, filter: { key, op, value } }] -- one-click toggles shown
+ *     quick: [{ label, filter: { key, op, value }, group }] -- one-click toggles
  *       beside "Add filter" (e.g. "Branded only"); a click adds the chip, a
- *       second click removes it
+ *       second click removes it. Presets sharing a group switch each other off
+ *       ("Branded only" / "No brand only"), since a row can only be one.
  *     fields: [{ key, label, type, get, options }]
  *       type    'enum' | 'text' | 'number' | 'date'
  *       get     row -> value (a scalar, or an array for "any of these")
@@ -25,7 +26,8 @@
         enum: [['is', 'is'], ['is_not', 'is not'], ['empty', 'is empty'], ['not_empty', 'is not empty']],
         text: [['contains', 'contains'], ['not_contains', 'does not contain'], ['empty', 'is empty'], ['not_empty', 'is not empty']],
         number: [['gte', 'is at least'], ['lte', 'is at most'], ['eq', 'is exactly']],
-        date: [['after', 'is on or after'], ['before', 'is on or before']],
+        // a range first: "between" with either end open covers on/after and on/before too
+        date: [['between', 'is between'], ['on', 'is on'], ['after', 'is on or after'], ['before', 'is on or before']],
     };
     const NEEDS_VALUE = (op) => op !== 'empty' && op !== 'not_empty';
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,8 +39,13 @@
 
         const save = () => { try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ } };
         const optionsOf = (def) => (typeof def.options === 'function' ? def.options() : def.options) || [];
-        const labelOfValue = (def, value) => {
+        const shortDate = (d) => { if (!d) return ''; const [y, m, dd] = String(d).split('-'); return `${m}/${dd}/${String(y).slice(2)}`; };
+        const labelOfValue = (def, value, op) => {
             if (def.type === 'enum') { const o = optionsOf(def).find((x) => String(x.value) === String(value)); return o ? o.label : value; }
+            if (def.type === 'date') {
+                if (op === 'between') { const [a, b] = String(value).split('..'); return `${shortDate(a) || 'the start'} and ${shortDate(b) || 'today'}`; }
+                return shortDate(value);
+            }
             return value;
         };
 
@@ -67,7 +74,13 @@
             }
             if (def.type === 'date') {
                 if (!v) return false;
-                const day = new Date(want + 'T00:00:00').getTime();
+                const start = (d) => new Date(d + 'T00:00:00').getTime();
+                if (f.op === 'between') {
+                    const [a, b] = String(want).split('..');
+                    return (!a || v >= start(a)) && (!b || v <= start(b) + 86399999);
+                }
+                const day = start(want);
+                if (f.op === 'on') return v >= day && v <= day + 86399999;
                 return f.op === 'after' ? v >= day : v <= day + 86399999;
             }
             return true;
@@ -80,7 +93,7 @@
             const chips = filters.map((f, i) => {
                 const def = byKey[f.key];
                 const op = (OPS[def.type].find(([k]) => k === f.op) || [])[1] || f.op;
-                const val = NEEDS_VALUE(f.op) ? `<b>${esc(labelOfValue(def, f.value))}</b>` : '';
+                const val = NEEDS_VALUE(f.op) ? `<b>${esc(labelOfValue(def, f.value, f.op))}</b>` : '';
                 return `<span class="fchip" data-i="${i}" title="Click to edit"><span class="k">${esc(def.label)}</span> <span class="o">${esc(op)}</span> ${val}<button type="button" class="x" data-x="${i}" title="Remove">✕</button></span>`;
             }).join('');
             const quicks = quick.map((q, i) => `<button type="button" class="fquick ${filters.some((f) => sameFilter(f, q.filter)) ? 'on' : ''}" data-q="${i}">${esc(q.label)}</button>`).join('');
@@ -96,9 +109,18 @@
             mount.querySelector('.fadd').onclick = (e) => openPopover(e.currentTarget, -1);
             mount.querySelectorAll('.fquick').forEach((btn) => {
                 btn.onclick = () => {
-                    const q = quick[Number(btn.dataset.q)].filter;
+                    const item = quick[Number(btn.dataset.q)];
+                    const q = item.filter;
                     const at = filters.findIndex((f) => sameFilter(f, q));
-                    if (at >= 0) filters.splice(at, 1); else filters.push({ ...q });
+                    if (at >= 0) filters.splice(at, 1);
+                    else {
+                        // turning one on turns its group-mates off
+                        if (item.group) {
+                            const mates = quick.filter((x) => x !== item && x.group === item.group).map((x) => x.filter);
+                            filters = filters.filter((f) => !mates.some((m) => sameFilter(f, m)));
+                        }
+                        filters.push({ ...q });
+                    }
                     commit();
                 };
             });
@@ -141,6 +163,14 @@
             const fillValue = (keepValue) => {
                 const def = byKey[fieldSel.value];
                 if (!NEEDS_VALUE(opSel.value)) { valWrap.innerHTML = ''; return; }
+                if (def.type === 'date' && opSel.value === 'between') {
+                    valWrap.innerHTML = '<input class="f-value f-from" type="date" title="From"><input class="f-to" type="date" title="To">';
+                    const [a, b] = String(keepValue || '').split('..');
+                    const fromEl = valWrap.querySelector('.f-from'), toEl = valWrap.querySelector('.f-to');
+                    if (global.DateRange) DateRange.enhance(fromEl, toEl, { defaultPreset: keepValue ? 'all' : '30', onChange: () => {} });
+                    if (keepValue) { fromEl.value = a || ''; toEl.value = b || ''; }
+                    return;
+                }
                 if (def.type === 'enum') {
                     valWrap.innerHTML = `<select class="f-value">${optionsOf(def).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select>`;
                 } else {
@@ -161,8 +191,16 @@
                 const f = { key: fieldSel.value, op: opSel.value };
                 if (NEEDS_VALUE(f.op)) {
                     const inp = valWrap.querySelector('.f-value');
-                    f.value = inp ? inp.value.trim() : '';
-                    if (f.value === '') { if (inp) inp.focus(); return; }
+                    const toEl = valWrap.querySelector('.f-to');
+                    if (toEl) {
+                        // a range: either end may be open, not both
+                        const a = inp.value.trim(), b = toEl.value.trim();
+                        if (!a && !b) { inp.focus(); return; }
+                        f.value = `${a}..${b}`;
+                    } else {
+                        f.value = inp ? inp.value.trim() : '';
+                        if (f.value === '') { if (inp) inp.focus(); return; }
+                    }
                 }
                 if (editing) filters[index] = f; else filters.push(f);
                 closePopover(); commit();
@@ -190,7 +228,7 @@
             summary: () => filters.map((f) => {
                 const def = byKey[f.key];
                 const op = (OPS[def.type].find(([k]) => k === f.op) || [])[1] || f.op;
-                return `${def.label} ${op}${NEEDS_VALUE(f.op) ? ' ' + labelOfValue(def, f.value) : ''}`;
+                return `${def.label} ${op}${NEEDS_VALUE(f.op) ? ' ' + labelOfValue(def, f.value, f.op) : ''}`;
             }).join(' · '),
         };
     }

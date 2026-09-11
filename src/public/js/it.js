@@ -41,6 +41,10 @@
         $('pane-accounts').remove();
     }
 
+    // quick-range menus beside every From/To pair; the existing handlers keep reading the boxes
+    DateRange.enhance($('from'), $('to'), { storageKey: 'rx_it_log_period' });
+    const rxDr = DateRange.enhance($('rxFrom'), $('rxTo'), { storageKey: 'rx_it_rx_period' });
+
     // ---------- tabs ----------
     document.querySelectorAll('#tabs .tab').forEach((btn) => {
         btn.onclick = () => {
@@ -410,7 +414,7 @@
     };
     $('rxRefresh').onclick = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); };
     $('rxClear').onclick = () => {
-        $('rxFrom').value = ''; $('rxTo').value = '';
+        rxDr.apply('all');
         rxOffset = 0; rxPicked.clear(); loadPrescriptions();
     };
     ['rxFrom', 'rxTo'].forEach((id) => { $(id).onchange = () => { rxOffset = 0; rxPicked.clear(); loadPrescriptions(); }; });

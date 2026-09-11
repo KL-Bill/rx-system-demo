@@ -7,7 +7,7 @@ const pharmacy = require('./pharmacy');
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 const clean = (x) => String(x || '').replace(/\s+/g, ' ').trim();
 
-const search = ({ q, bizbox, limit, offset }) => db.searchCatalog({ q, bizbox, limit, offset });
+const search = ({ q, bizbox, brand, limit, offset }) => db.searchCatalog({ q, bizbox, brand, limit, offset });
 
 const get = async (id) => {
     const row = await db.getCatalogRow(Number(id));
