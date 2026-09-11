@@ -125,6 +125,19 @@
         </div>
     </div>
 
+    <!-- ===== every remark on one row, newest first (opened from the drawer) ===== -->
+    <dialog id="rmkDlg" class="dlg" aria-labelledby="rmkTitle">
+        <div class="dlg-head">
+            <h3 class="dlg-title" id="rmkTitle">Remark history</h3>
+            <span class="muted" id="rmkCount" style="font-size:12.5px"></span>
+        </div>
+        <div class="rv-drug" id="rmkDrug"></div>
+        <div class="remarks rmk-all" id="rmkList"></div>
+        <div class="dlg-actions">
+            <button id="rmkClose" type="button">Close</button>
+        </div>
+    </dialog>
+
     <!-- ===== Set remark: pick the remark, (review the medicine when it resolves the row), confirm ===== -->
     <dialog id="resolveDlg" class="dlg dlg-wide" aria-labelledby="rvTitle">
         <div class="dlg-head">

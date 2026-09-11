@@ -37,6 +37,19 @@ strength, never as one blob of text. Picking a medicine that *is* in Bizbox
 asks "are you sure?" first. The prescription is recorded on the first **Print**
 click, not on Add and not on New patient.
 
+**Medical supplies** (gloves, catheters, syringes) follow the same rules and go
+on the same prescription, in the same numbered list. A **Medicine / Supply**
+switch at the top of the Add panel swaps the boxes: a supply is one search box
+(Bizbox's wording, with its item code), plus the same Out of stock, Qty and
+Sig. Picking one Bizbox carries asks "are you sure?"; typing one it does not
+carry is allowed and prints bold, like a new medicine. The kiosk remembers
+which kind it was last adding. Supplies live in their own flat `supplies`
+table (code + description), not the generic/brand/form/strength tree, and on
+Review and Reports they show the supply in the Generic column and
+"Supply · code" beside it. *Medicines only* / *Supplies only* presets split
+them; the Brand filters (*Branded only*, *No brand only*) apply to medicines
+only.
+
 **Previous prescriptions** on the nurse page finds a slip a station lost and
 reprints it: search by patient, doctor, medicine or address, within a date
 range. A kiosk only ever sees what *it* printed. Each save hands the kiosk an
@@ -76,9 +89,17 @@ The Medicines page (pharmacy head at `/medicines`, IT on its Medicines tab)
 has two tabs:
 
 - **RX Formulary** — search the whole list, fix a spelling, merge a duplicate
-  into the entry you keep, or add a single medicine by hand.
-- **Import from Bizbox** — upload the Bizbox export (`.xlsx` or `.csv`; two
-  columns, generic and description). Confirm which column is which, watch the
+  into the entry you keep, or add a single medicine by hand. The
+  **Medicines / Supplies** chip switches to the supplies list, which has the
+  same edit, merge, add and restore.
+- **Import from Bizbox** — upload the Bizbox export (`.xlsx` or `.csv`): the
+  medicine list (generic and description, e.g. AllMeds) or the supplies list
+  (item code and description, e.g. MEDSUPP — `Pk_iwitems`, `Itemdesc`). The
+  column screen asks what the file lists and guesses it from the headers.
+  Supplies are matched by Bizbox code first, then by wording, so there is
+  nothing to split and no *Needs your decision* group; lines that are not
+  supplies (the `MEDSUO-` services, for instance) can be skipped, and
+  remembered. For medicines: confirm which column is which, watch the
   analysis run, then review the result in four plain groups: *Needs your
   decision*, *New to RX Formulary*, *Now marked In Bizbox*, and *Already in RX
   Formulary*. Only rows the import could not settle need a person, and each
@@ -454,7 +475,7 @@ skip them entirely on a from-scratch build.
 the Bizbox description columns on `strengths`, the `review_remarks`,
 `catalog_imports` and `catalog_import_exclusions` tables, `users.is_master`
 for the two IT tiers, and the soft-delete columns on prescriptions, doctors
-and strengths. It backfills a stitched description for every existing product
+and strengths, and the `supplies` table for medical supplies. It backfills a stitched description for every existing product
 and marks every IT account that predates it as master. Additive only: nothing
 is dropped, renamed or retyped, and re-running it is a no-op.
 

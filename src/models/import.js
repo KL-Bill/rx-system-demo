@@ -12,6 +12,13 @@
 //
 // Nothing is removed or unflagged, ever. A Bizbox product missing from the
 // file is reported in the result and left alone.
+//
+// Two kinds of file (summary.kind):
+//   medicine  generic + description; split into brand/form/strength and
+//             matched against the medicine tree (most of this file)
+//   supply    Bizbox item code + description (MEDSUPP: Pk_iwitems, Itemdesc);
+//             a flat list matched by code, then by wording. Nothing to split,
+//             so nothing lands in "Needs your decision".
 
 const db = require('../_db/db_functions');
 const catalogCache = require('../_db/catalog-cache');
@@ -105,7 +112,12 @@ const guessColumns = (headers) => {
     let desc = find('abbrev', 'description', 'brand', 'item name');
     if (generic < 0) generic = 0;
     if (desc < 0 || desc === generic) desc = generic === 0 ? 1 : 0;
-    return { genericCol: generic, descCol: desc };
+    // a code column and no generic column: the supplies export
+    const code = find('pk_iwitems', 'itemcode', 'item code', 'code');
+    const kind = code >= 0 && find('generic') < 0 ? 'supply' : 'medicine';
+    let supDesc = find('itemdesc', 'description', 'item name');
+    if (supDesc < 0 || supDesc === code) supDesc = code === 0 ? 1 : 0;
+    return { genericCol: generic, descCol: desc, kind, codeCol: code, supplyDescCol: supDesc };
 };
 
 // ----- upload -----
@@ -125,14 +137,23 @@ const createFromUpload = async ({ name, buffer, actor }) => {
 };
 
 // ----- analyze -----
-const analyze = async (id, { genericCol, descCol }, actor) => {
+const analyze = async (id, { genericCol, descCol, kind, codeCol }, actor) => {
     const job = await db.getImport(id);
     if (!job) throw httpError(404, 'Import not found');
     if (job.status !== 'uploaded') throw httpError(409, `This import is already ${job.status.replace(/_/g, ' ')}`);
+    if (kind === 'supply') {
+        descCol = Number(descCol); codeCol = codeCol === '' || codeCol == null ? -1 : Number(codeCol);
+        if (!Number.isInteger(descCol) || descCol < 0) throw httpError(400, 'Pick the description column');
+        if (codeCol === descCol) throw httpError(400, 'Pick two different columns');
+        const sheet = job.rows.sheet || [];
+        await db.updateImport(id, { status: 'analyzing', total: sheet.length, processed: 0, summary: { ...job.summary, kind: 'supply', codeCol, descCol, heartbeat: Date.now(), counts: {} } });
+        setImmediate(() => runAnalyzeSupplies(id, sheet, codeCol, descCol).catch((e) => fail(id, e)));
+        return { id };
+    }
     genericCol = Number(genericCol); descCol = Number(descCol);
     if (!Number.isInteger(genericCol) || !Number.isInteger(descCol) || genericCol === descCol) throw httpError(400, 'Pick two different columns');
     const sheet = job.rows.sheet || [];
-    await db.updateImport(id, { status: 'analyzing', total: sheet.length, processed: 0, summary: { ...job.summary, genericCol, descCol, heartbeat: Date.now(), counts: {} } });
+    await db.updateImport(id, { status: 'analyzing', total: sheet.length, processed: 0, summary: { ...job.summary, kind: 'medicine', genericCol, descCol, heartbeat: Date.now(), counts: {} } });
     setImmediate(() => runAnalyze(id, sheet, genericCol, descCol).catch((e) => fail(id, e)));
     return { id };
 };
@@ -269,6 +290,67 @@ async function runAnalyze(id, sheet, genericCol, descCol) {
     });
 }
 
+// Supplies: match by Bizbox code first (a code never changes when Bizbox
+// rewords an item), then by wording (a supply a nurse typed has no code).
+//   unchanged  in the list and In Bizbox — only the wording is refreshed
+//   flag       in the list but not marked (typed by a nurse, or removed)
+//   new        nothing like it
+// The row keeps the medicine field names: generic carries the description,
+// so the shared review screen and "left to decide" count need no branch.
+async function runAnalyzeSupplies(id, sheet, codeCol, descCol) {
+    const all = await db.getAllSupplies();
+    // a live row wins over a removed one for the same code or wording
+    const rank = (r) => (r.deletedAt ? 0 : 1) + (r.inBizbox ? 2 : 0);
+    const byCode = new Map(), byDesc = new Map();
+    for (const r of all) {
+        const ck = norm(r.code), dk = norm(r.description);
+        if (ck && (!byCode.has(ck) || rank(r) > rank(byCode.get(ck)))) byCode.set(ck, r);
+        if (dk && (!byDesc.has(dk) || rank(r) > rank(byDesc.get(dk)))) byDesc.set(dk, r);
+    }
+    const excluded = new Map((await db.getExclusions()).map((x) => [x.key, x]));
+    const seen = new Set();
+    const out = [];
+    const counts = emptyCounts();
+    for (let i = 0; i < sheet.length; i++) {
+        const cells = sheet[i];
+        const description = String(cells[descCol] || '').replace(/\s+/g, ' ').trim();
+        const code = codeCol >= 0 ? String(cells[codeCol] || '').trim() : '';
+        const row = { i, kind: 'supply', code, generic: description, description, brand: '', form: '', strength: '', volumeMl: null, warnings: [], category: 'new', action: 'new', match: null, siblings: [], note: '' };
+        const skip = (note, extra = {}) => { Object.assign(row, { category: 'excluded', excluded: true, action: 'skip', note }, extra); out.push(row); counts.excluded++; };
+        if (!description) { skip('blank description'); continue; }
+        if (excluded.has(db.exclusionKey(description))) { skip('excluded last time', { remember: true }); continue; }
+        const dupKey = code ? 'c|' + norm(code) : 'd|' + norm(description);
+        if (seen.has(dupKey)) { skip('duplicate line in this file'); continue; }
+        seen.add(dupKey);
+
+        const m = (code && byCode.get(norm(code))) || byDesc.get(norm(description));
+        if (m) {
+            row.match = { id: m.id, code: m.code, generic: m.description, description: m.code || '', ihf: m.inBizbox && !m.deletedAt, removed: !!m.deletedAt };
+            const live = m.inBizbox && !m.deletedAt;
+            row.category = live ? 'unchanged' : 'flag';
+            row.action = live ? 'skip' : 'flag';
+            const notes = [];
+            if (norm(m.description) !== norm(description)) notes.push(`was "${m.description}"`);
+            if (m.deletedAt) notes.push('was removed — comes back');
+            row.note = notes.join('; ');
+        }
+        out.push(row); counts[row.category]++;
+
+        if ((i + 1) % BATCH === 0) {
+            const job = await db.getImport(id, { withRows: false });
+            if (!job || job.status === 'cancelled') return;
+            await db.updateImport(id, { processed: i + 1, summary: { ...job.summary, counts: { ...counts }, heartbeat: Date.now() } });
+        }
+    }
+    const job = await db.getImport(id, { withRows: false });
+    if (!job || job.status === 'cancelled') return;
+    await db.updateImport(id, {
+        status: 'awaiting_review', processed: sheet.length,
+        rows: { sheet: undefined, items: out },
+        summary: { ...job.summary, counts, heartbeat: Date.now(), analyzedAt: Date.now() },
+    });
+}
+
 // ----- review -----
 const get = async (id, { withRows = false } = {}) => {
     const job = await db.getImport(id, { withRows });
@@ -344,7 +426,8 @@ const apply = async (id, actor) => {
     if (left) throw httpError(400, `${left} row${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a decision under Needs attention`);
     if (!items.some((r) => r.generic && r.action !== 'skip' && r.action !== 'review' && !r.excluded) && !items.some((r) => r.category === 'unchanged')) throw httpError(400, 'Nothing to apply');
     await db.updateImport(id, { status: 'applying', processed: 0, total: items.length, summary: { ...job.summary, heartbeat: Date.now(), appliedBy: actor && actor.name } });
-    setImmediate(() => runApply(id, items, actor).catch((e) => fail(id, e)));
+    const run = job.summary.kind === 'supply' ? runApplySupplies : runApply;
+    setImmediate(() => run(id, items, actor).catch((e) => fail(id, e)));
     return { id };
 };
 
@@ -396,6 +479,53 @@ async function runApply(id, items, actor) {
     });
 }
 
+async function runApplySupplies(id, items, actor) {
+    const now = Date.now();
+    const result = { flagged: 0, created: 0, linked: 0, unchanged: 0, skipped: 0, excluded: 0, remembered: 0 };
+    for (let i = 0; i < items.length; i++) {
+        const r = items[i];
+        try {
+            if (r.excluded || r.category === 'excluded') {
+                result.excluded++;
+                if (r.remember && r.description) { await db.addExclusion({ description: r.description, excludedBy: actor && actor.name }); result.remembered++; }
+            } else if (r.action === 'skip' && r.category === 'unchanged' && r.match) {
+                // still listed: stamp it seen and take Bizbox's own wording
+                await db.addSupplyToCatalog({ id: r.match.id, code: r.code, description: r.description, seenAt: now });
+                result.unchanged++;
+            } else if (r.action === 'skip' || r.action === 'review') {
+                result.skipped++;
+            } else if ((r.action === 'flag' || r.action === 'same') && r.match) {
+                await db.addSupplyToCatalog({ id: r.match.id, code: r.code, description: r.description, seenAt: now });
+                result.flagged++;
+            } else {
+                await db.addSupplyToCatalog({ code: r.code, description: r.description, seenAt: now });
+                result.created++;
+            }
+            r.applied = true;
+        } catch (e) {
+            r.error = e.message;
+            result.skipped++;
+        }
+        if ((i + 1) % BATCH === 0) {
+            const job = await db.getImport(id, { withRows: false });
+            if (!job || job.status === 'cancelled') return;
+            await db.updateImport(id, { processed: i + 1, summary: { ...job.summary, heartbeat: Date.now(), result: { ...result } } });
+        }
+    }
+    const missing = await db.suppliesNotSeenSince(now);
+    const job = await db.getImport(id, { withRows: false });
+    await db.updateImport(id, {
+        status: 'done', processed: items.length, finishedAt: Date.now(),
+        rows: { items },
+        summary: { ...job.summary, heartbeat: Date.now(), result, missingCount: missing.length, missing: missing.slice(0, 500).map((m) => ({ generic: m.description, description: m.code || '', seenAt: m.seenAt })) },
+    });
+    await db.addAudit({
+        action: 'catalog_import', drug: job.file, reason: null,
+        status: `supplies: marked ${result.flagged}, created ${result.created}, unchanged ${result.unchanged}, excluded ${result.excluded}, missing from file ${missing.length}`,
+        actor: actor && actor.name, authorizedBy: actor && actor.name,
+    });
+}
+
 const cancel = async (id) => {
     const job = await db.getImport(id, { withRows: false });
     if (!job) throw httpError(404, 'Import not found');
@@ -410,9 +540,9 @@ const reportCsv = async (id) => {
     if (!job) throw httpError(404, 'Import not found');
     const items = (job.rows && job.rows.items) || [];
     const cell = (v) => { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    const lines = [['Row', 'Generic', 'Bizbox description', 'Brand', 'Form', 'Strength', 'Category', 'Action', 'Matched product', 'Warnings', 'Note', 'Decided by', 'Applied', 'Error'].join(',')];
+    const lines = [['Row', 'Generic', 'Bizbox description', 'Brand', 'Form', 'Strength', 'Code', 'Category', 'Action', 'Matched product', 'Warnings', 'Note', 'Decided by', 'Applied', 'Error'].join(',')];
     for (const r of items) {
-        lines.push([r.i + 2, r.generic, r.description, r.brand, r.form, r.strength, r.category, r.excluded ? 'excluded' : r.action,
+        lines.push([r.i + 2, r.kind === 'supply' ? '' : r.generic, r.description, r.brand, r.form, r.strength, r.code || '', r.category, r.excluded ? 'excluded' : r.action,
             r.match ? `${r.match.generic} — ${r.match.description || [r.match.brand, r.match.strength, r.match.form].filter(Boolean).join(' ')}` : '',
             (r.warnings || []).join('; '), r.note || '', r.decidedBy || '', r.applied ? 'yes' : '', r.error || ''].map(cell).join(','));
     }

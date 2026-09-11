@@ -5,7 +5,8 @@
     mountRail({ mode: 'nurse', active: 'rx' });
 
     const $ = (id) => document.getElementById(id);
-    // { genericName, brandName, formName, strength, description, volumeMl, quantity, sig, isNew, inPnf, outOfStock }
+    // { kind, genericName, brandName, formName, strength, description, volumeMl, quantity, sig, isNew, inPnf, outOfStock }
+    // kind 'supply': genericName carries the description, supplyCode its Bizbox code
     const items = [];
     let savedRxId = null, dragFrom = null, masterDoctors = [];
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
@@ -70,12 +71,62 @@
     // the medicine widget (search, split, Bizbox check) lives in js/medwidget.js
     const { create: createWidget, fetchProduct, missingField } = MedWidget;
 
-    const builder = createWidget({ p: 'f-', sg: 'sg-', statusId: 'mbStatus', noteId: 'mbNote', splitNoteId: 'f-splitNote' });
-    const editor = createWidget({ p: 'e-', sg: 'esg-', statusId: 'edStatus', noteId: 'edNote', splitNoteId: 'e-splitNote', clearsBelow: false });
+    // Medicine or Supply: which boxes the Add panel shows. Both share the
+    // status line, Out of stock, Qty and Sig; the kind not on screen stays quiet.
+    let kind = 'med', editKind = 'med';
+    const builder = createWidget({ p: 'f-', sg: 'sg-', statusId: 'mbStatus', noteId: 'mbNote', splitNoteId: 'f-splitNote', active: () => kind === 'med' });
+    const editor = createWidget({ p: 'e-', sg: 'esg-', statusId: 'edStatus', noteId: 'edNote', splitNoteId: 'e-splitNote', clearsBelow: false, active: () => editKind === 'med' });
+    const supBuilder = SupplyBox.create({ p: 'f-', sg: 'sg-', statusId: 'mbStatus', noteId: 'mbNote', active: () => kind === 'sup' });
+    const supEditor = SupplyBox.create({ p: 'e-', sg: 'esg-', statusId: 'edStatus', noteId: 'edNote', active: () => editKind === 'sup' });
 
-    function resetBuilder() { builder.reset(); builder.focus('generic'); }
+    function setKind(k) {
+        kind = k;
+        $('builder').classList.toggle('kind-sup', k === 'sup');
+        document.querySelectorAll('[data-kind-btn]').forEach((b) => b.classList.toggle('on', b.dataset.kindBtn === k));
+        builder.hideBoxes(); supBuilder.hideBoxes();
+        (k === 'sup' ? supBuilder : builder).updateStatus();
+        if (k === 'sup') supBuilder.focus(); else builder.focus('generic');
+        try { localStorage.setItem('rx_add_kind', k); } catch { /* per-kiosk nicety only */ }
+    }
+    document.querySelectorAll('[data-kind-btn]').forEach((b) => { b.onclick = () => { if (b.dataset.kindBtn !== kind) setKind(b.dataset.kindBtn); }; });
+
+    function resetBuilder() {
+        if (kind === 'sup') { supBuilder.reset(); supBuilder.focus(); } else { builder.reset(); builder.focus('generic'); }
+    }
     $('mbClear').onclick = resetBuilder;
+
+    // a supply line: the same rules as a medicine — not in Bizbox prints bold,
+    // out of stock only means something for one Bizbox carries
+    async function checkSupply(s) {
+        const { ok, supply } = await SupplyBox.fetchSupply(s).catch(() => ({ ok: false, supply: null }));
+        return { ok, supply, inBizbox: !!(supply && supply.inBizbox) };
+    }
+    async function addSupply() {
+        const s = supBuilder.values();
+        if (!s.description) {
+            await showDialog({ kind: 'warn', title: 'Missing details', message: 'Enter the supply first.' });
+            supBuilder.focus();
+            return;
+        }
+        const btn = $('mbAdd'); btn.disabled = true;
+        const { ok, supply, inBizbox } = await checkSupply(s);
+        btn.disabled = false;
+        if (!ok) {
+            await showDialog({ kind: 'danger', title: 'Cannot reach the server', message: 'Bizbox could not be checked, so the supply was not added. Try again in a moment.' });
+            return;
+        }
+        const description = (supply && supply.description) || s.description;
+        addItem({
+            kind: 'supply', supplyCode: (supply && supply.code) || '', fromCatalog: !!supply,
+            genericName: description, brandName: '', formName: '', strength: '', description,
+            volumeMl: null, quantity: s.quantity, sig: s.sig,
+            isNew: !inBizbox, inPnf: false, outOfStock: inBizbox && s.outOfStock,
+        });
+        resetBuilder();
+    }
+
     $('mbAdd').onclick = async () => {
+        if (kind === 'sup') return addSupply();
         const s = builder.values();
         const miss = missingField(builder, s);
         if (miss) {
@@ -123,9 +174,12 @@
 
     function openEditor(i) {
         editIndex = i;
+        editKind = items[i].kind === 'supply' ? 'sup' : 'med';
+        edDlg.classList.toggle('kind-sup', editKind === 'sup');
+        $('edTitle').textContent = editKind === 'sup' ? 'Edit supply' : 'Edit medicine';
         $('edErr').classList.remove('show');
         edDlg.showModal();
-        editor.load(items[i]);
+        (editKind === 'sup' ? supEditor : editor).load(items[i]);
     }
 
     function editError(msg, focusField) {
@@ -136,7 +190,27 @@
     }
 
     $('edCancel').onclick = () => edDlg.close();
+    async function saveSupplyEdit() {
+        const s = supEditor.values();
+        $('edErr').classList.remove('show');
+        if (!s.description) { editError('Enter the supply.'); supEditor.focus(); return; }
+        const btn = $('edSave'); btn.disabled = true;
+        const { ok, supply, inBizbox } = await checkSupply(s);
+        btn.disabled = false;
+        if (!ok) { editError('Could not reach the server to check Bizbox. Try again in a moment.'); return; }
+        const it = items[editIndex];
+        const description = (supply && supply.description) || s.description;
+        Object.assign(it, {
+            genericName: description, description, supplyCode: (supply && supply.code) || '', fromCatalog: !!supply,
+            quantity: s.quantity, sig: s.sig, isNew: !inBizbox, outOfStock: inBizbox && s.outOfStock,
+        });
+        savedRxId = null;
+        edDlg.close();
+        render();
+    }
+
     $('edSave').onclick = async () => {
+        if (editKind === 'sup') return saveSupplyEdit();
         const s = editor.values();
         $('edErr').classList.remove('show');
         const miss = missingField(editor, s);
@@ -167,7 +241,7 @@
         render();
     };
     // Esc closes without saving, like Cancel; leave nothing hanging behind it
-    edDlg.addEventListener('close', () => { editor.hideBoxes(); editIndex = -1; });
+    edDlg.addEventListener('close', () => { editor.hideBoxes(); supEditor.hideBoxes(); editIndex = -1; });
 
     // ----- items -----
     function medLabel(it) {
@@ -186,7 +260,8 @@
         $('items-empty').style.display = items.length ? 'none' : 'block';
         list.innerHTML = items.map((it, i) => {
             const cls = it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : '');
-            const tags = (it.isNew ? ' <span class="badge amber">Not in Bizbox</span>' : ' <span class="badge green">In Bizbox</span>')
+            const tags = (it.kind === 'supply' ? ' <span class="badge gray">Supply</span>' : '')
+                + (it.isNew ? ' <span class="badge amber">Not in Bizbox</span>' : ' <span class="badge green">In Bizbox</span>')
                 + (it.outOfStock ? ' <span class="np-note">out of stock</span>' : '')
                 + (it.inPnf ? ' <span class="badge navy" title="In the Philippine National Formulary">PNF</span>' : '');
             return `<li data-i="${i}">
@@ -195,7 +270,7 @@
                     <input class="sig" type="text" data-sig="${i}" value="${escapeHtml(it.sig || '')}" placeholder="Sig — e.g. 1 tab TID for pain">
                 </span>
                 <input class="qty" type="number" min="1" value="${it.quantity}" data-i="${i}">
-                <button class="edit" type="button" data-edit="${i}" title="Edit this medicine">Edit</button>
+                <button class="edit" type="button" data-edit="${i}" title="Edit this line">Edit</button>
                 <button class="x" data-x="${i}">✕</button>
             </li>`;
         }).join('');
@@ -260,7 +335,7 @@
         printRestored = true;
         // the sig/qty inputs are rebuilt by render(), so the remembered field
         // may no longer be in the document
-        const target = () => (lastField && document.body.contains(lastField) ? lastField : $('f-generic'));
+        const target = () => (lastField && document.body.contains(lastField) ? lastField : $(kind === 'sup' ? 'f-supply' : 'f-generic'));
         // the dialog tears down asynchronously and takes focus with it on the
         // way out, so restoring straight away can be undone; the second pass
         // only fires if focus really did end up nowhere
@@ -279,9 +354,9 @@
         if (!items.length) {
             await showDialog({
                 kind: 'warn', title: 'Nothing to print',
-                message: 'Add at least one medicine to the prescription first.',
+                message: 'Add at least one medicine or supply to the prescription first.',
             });
-            builder.focus('generic');
+            if (kind === 'sup') supBuilder.focus(); else builder.focus('generic');
             return;
         }
         if (!savedRxId) {
@@ -290,6 +365,7 @@
                 patient: $('patient').value.trim(), address: $('address').value.trim(), age: $('age').value.trim(), sex: $('sex').value.trim(),
                 doctor: { name: $('doctor').value.trim(), license: $('docLicense').value.trim(), ptr: $('docPtr').value.trim(), s2: $('docS2').value.trim() },
                 items: items.map((it) => ({
+                    kind: it.kind === 'supply' ? 'supply' : undefined, supplyCode: it.supplyCode || undefined,
                     genericName: it.genericName, brandName: it.brandName, formName: it.formName, strength: it.strength,
                     description: it.description || '', volumeMl: it.volumeMl, quantity: it.quantity, sig: it.sig || '', outOfStock: !!it.outOfStock,
                 })),
@@ -441,6 +517,8 @@
         const el = $(id); if (el) el.addEventListener('input', renderPreview);
     });
 
-    builder.updateStatus();
+    let startKind = 'med';
+    try { startKind = localStorage.getItem('rx_add_kind') === 'sup' ? 'sup' : 'med'; } catch { /* default */ }
+    if (startKind === 'sup') setKind('sup'); else builder.updateStatus();
     render();
 })();

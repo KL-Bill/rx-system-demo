@@ -62,6 +62,24 @@ CREATE INDEX idx_forms_name_trim ON forms (lower(trim(form_name)));
 CREATE INDEX idx_strengths_label_trim ON strengths (lower(trim(label)));
 CREATE INDEX idx_strengths_description_trim ON strengths (lower(trim(description)));
 
+-- ---------- medical supplies ----------
+-- Gloves, catheters, sutures and the like. A flat list — supplies have no
+-- generic/brand/form/strength — prescribed on the same slip as medicines and
+-- following the same Bizbox rules. code is Bizbox's item code (MEDSUP-00133),
+-- NULL for a supply a nurse typed or a person added by hand; ihf = in Bizbox.
+
+CREATE TABLE supplies (
+  id SERIAL PRIMARY KEY,
+  code TEXT UNIQUE,
+  description TEXT NOT NULL,
+  ihf BOOLEAN NOT NULL DEFAULT false,
+  bizbox_seen_at BIGINT,
+  deleted_at BIGINT,
+  merged_into INTEGER
+);
+
+CREATE INDEX idx_supplies_description ON supplies (lower(trim(description)));
+
 -- ---------- users / stations / doctors ----------
 -- ids keep the app's existing "prefix-uuid8" text-id scheme (see newId() in
 -- src/_db/store.js) for continuity with data already handed out to users.

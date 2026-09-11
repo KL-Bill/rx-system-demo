@@ -14,7 +14,7 @@
         <div class="appbar">
             <div>
                 <h1>New Prescription</h1>
-                <p class="sub" style="margin:0">For medicines Bizbox won't release — not in Bizbox, or out of stock.</p>
+                <p class="sub" style="margin:0">For medicines and supplies Bizbox won't release — not in Bizbox, or out of stock.</p>
             </div>
         </div>
 
@@ -23,7 +23,7 @@
             <!-- builder -->
             <div class="card">
                 <h2>New Prescription</h2>
-                <p class="sub">For medicines Bizbox won't release — not in Bizbox, or out of stock. Add them, then print.</p>
+                <p class="sub">For medicines and supplies Bizbox won't release — not in Bizbox, or out of stock. Add them, then print.</p>
 
                 <label>Station / Department</label>
                 <select id="station"></select>
@@ -52,9 +52,16 @@
                      way Bizbox lists a product. Typing a medicine Bizbox does not
                      have opens the three fields underneath so the nurse confirms
                      what is the brand, the form and the strength before adding. -->
-                <div class="builder">
+                <div class="builder kind-host" id="builder">
                     <div class="builder-head">
-                        <span>Add medicine</span>
+                        <!-- medicines and medical supplies go on the same prescription,
+                             in the same numbered list; this only swaps the boxes -->
+                        <span class="bh-left">Add
+                            <span class="kind-seg" role="group" aria-label="What to add">
+                                <button type="button" data-kind-btn="med" class="on">Medicine</button>
+                                <button type="button" data-kind-btn="sup">Supply</button>
+                            </span>
+                        </span>
                         <span class="bh-right">
                             <span id="mbStatus" class="mb-status"></span>
                             <!-- subtle on purpose: a lost slip is the exception, not the flow -->
@@ -64,22 +71,28 @@
                             </button>
                         </span>
                     </div>
-                    <p class="sub" style="margin:0 0 12px">Type the generic, then the brand, form and strength as Bizbox lists it — pick from the suggestions. Type something new to add a medicine Bizbox does not have.</p>
+                    <p class="sub" style="margin:0 0 12px" data-kind="med">Type the generic, then the brand, form and strength as Bizbox lists it — pick from the suggestions. Type something new to add a medicine Bizbox does not have.</p>
+                    <p class="sub" style="margin:0 0 12px" data-kind="sup">Type the supply as Bizbox lists it — gloves, catheter, syringe… — and pick from the suggestions. Type something new to add a supply Bizbox does not have.</p>
                     <div class="mb-fields">
                     <div class="mb-row">
-                        <div class="search-wrap mb-f2">
+                        <div class="search-wrap mb-sup" data-kind="sup">
+                            <label for="f-supply">Supply</label>
+                            <input id="f-supply" autocomplete="off" placeholder="Enter supply…">
+                            <div class="suggestions" id="sg-supply" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap mb-f2" data-kind="med">
                             <label for="f-generic">Generic</label>
                             <input id="f-generic" autocomplete="off" placeholder="Enter generic name…">
                             <div class="suggestions" id="sg-generic" style="display:none"></div>
                         </div>
-                        <div class="search-wrap mb-f3" data-mode="search split nobrand">
+                        <div class="search-wrap mb-f3" data-mode="search split nobrand" data-kind="med">
                             <label for="f-combo">Brand / Form / Strength</label>
                             <input id="f-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
                             <div class="suggestions" id="sg-combo" style="display:none"></div>
                             <label class="mb-check under"><input type="checkbox" id="f-nobrand"> No brand</label>
                         </div>
                         <label class="mb-check"><input type="checkbox" id="f-oos"> Out of stock in Bizbox</label>
-                        <div class="mb-qty">
+                        <div class="mb-qty" data-kind="med">
                             <label>Vol (mL)</label>
                             <input id="f-vol" type="number" min="0" step="any" placeholder="—">
                         </div>
@@ -90,7 +103,7 @@
                     </div>
                     <!-- the three fields behind the box: only for a medicine Bizbox
                          does not list (split) or when No brand is ticked -->
-                    <div class="mb-row mb-row-split" data-mode="split nobrand">
+                    <div class="mb-row mb-row-split" data-mode="split nobrand" data-kind="med">
                         <div class="search-wrap" data-mode="split">
                             <label for="f-brand">Brand</label>
                             <input id="f-brand" autocomplete="off" placeholder="Enter brand…">
@@ -108,7 +121,7 @@
                         </div>
                     </div>
                     </div>
-                    <div id="f-splitNote" class="mb-splitnote" style="display:none"></div>
+                    <div id="f-splitNote" class="mb-splitnote" data-kind="med" style="display:none"></div>
                     <div class="mb-row mb-row3"><div class="mb-sig">
                             <label>Sig (instructions — optional)</label>
                             <input id="f-sig" autocomplete="off" placeholder="e.g. 1 tab TID for pain">
@@ -121,7 +134,7 @@
                 </div>
 
                 <ul id="items" class="items"></ul>
-                <div id="items-empty" class="empty">No medicines added yet.</div>
+                <div id="items-empty" class="empty">No medicines or supplies added yet.</div>
 
                 <div class="row" style="margin-top:16px;">
                     <button id="printBtn" style="flex:2">Print Prescription</button>
@@ -140,26 +153,31 @@
     </div>
 
     <!-- ===== edit medicine dialog (same widget as the Add panel above) ===== -->
-    <dialog id="medEditDlg" class="dlg dlg-wide" aria-labelledby="edTitle">
+    <dialog id="medEditDlg" class="dlg dlg-wide kind-host" aria-labelledby="edTitle">
         <div class="dlg-head">
             <h3 class="dlg-title" id="edTitle">Edit medicine</h3>
             <span id="edStatus" class="mb-status"></span>
         </div>
         <div class="mb-fields">
                     <div class="mb-row">
-                        <div class="search-wrap mb-f2">
+                        <div class="search-wrap mb-sup" data-kind="sup">
+                            <label for="e-supply">Supply</label>
+                            <input id="e-supply" autocomplete="off" placeholder="Enter supply…">
+                            <div class="suggestions" id="esg-supply" style="display:none"></div>
+                        </div>
+                        <div class="search-wrap mb-f2" data-kind="med">
                             <label for="e-generic">Generic</label>
                             <input id="e-generic" autocomplete="off" placeholder="Enter generic name…">
                             <div class="suggestions" id="esg-generic" style="display:none"></div>
                         </div>
-                        <div class="search-wrap mb-f3" data-mode="search split nobrand">
+                        <div class="search-wrap mb-f3" data-mode="search split nobrand" data-kind="med">
                             <label for="e-combo">Brand / Form / Strength</label>
                             <input id="e-combo" autocomplete="off" placeholder="Enter brand, form, strength…">
                             <div class="suggestions" id="esg-combo" style="display:none"></div>
                             <label class="mb-check under"><input type="checkbox" id="e-nobrand"> No brand</label>
                         </div>
                         <label class="mb-check"><input type="checkbox" id="e-oos"> Out of stock in Bizbox</label>
-                        <div class="mb-qty">
+                        <div class="mb-qty" data-kind="med">
                 <label for="e-vol">Vol (mL)</label>
                 <input id="e-vol" type="number" min="0" step="any" placeholder="—">
             </div>
@@ -170,7 +188,7 @@
                     </div>
                     <!-- the three fields behind the box: only for a medicine Bizbox
                          does not list (split) or when No brand is ticked -->
-                    <div class="mb-row mb-row-split" data-mode="split nobrand">
+                    <div class="mb-row mb-row-split" data-mode="split nobrand" data-kind="med">
                         <div class="search-wrap" data-mode="split">
                             <label for="e-brand">Brand</label>
                             <input id="e-brand" autocomplete="off" placeholder="Enter brand…">
@@ -188,7 +206,7 @@
                         </div>
                     </div>
                     </div>
-        <div id="e-splitNote" class="mb-splitnote" style="display:none"></div>
+        <div id="e-splitNote" class="mb-splitnote" data-kind="med" style="display:none"></div>
                     <div class="mb-row mb-row3"><div class="mb-sig">
                 <label for="e-sig">Sig (instructions — optional)</label>
                 <input id="e-sig" autocomplete="off" placeholder="e.g. 1 tab TID for pain">

@@ -8,8 +8,13 @@ const labelOf = (it) => {
 // The "Brand/Form/Strength" column: the Bizbox wording when the item was
 // picked from the catalog (it.description), else the same parts stitched in
 // Bizbox order — brand, strength, form — e.g. "BIOGESIC 500MG TABLET".
-const descriptionOf = (it) => it.description
-    || [it.brandName, it.strength, it.formName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+// A supply has no brand/form/strength: its description sits in the Generic
+// column (it.genericName) and this column stays blank. The pages mark the row
+// as a supply themselves (kind + supplyCode), under the name.
+const isSupply = (it) => it.kind === 'supply';
+const descriptionOf = (it) => (isSupply(it)
+    ? ''
+    : it.description || [it.brandName, it.strength, it.formName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim());
 
 // reasons a medicine can land on one of these prescriptions
 const PROBLEM = ['not_in_formulary', 'out_of_stock'];
@@ -79,6 +84,7 @@ async function aggregate({ reason, from, to, department } = {}) {
         if (!g) {
             g = {
                 key, reason: it.reason, label: labelOf(it), description: descriptionOf(it),
+                kind: isSupply(it) ? 'supply' : 'medicine', supplyCode: it.supplyCode || null,
                 generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength,
                 registrationNumber: it.registrationNumber || null,
                 prescriptions: 0, volume: 0, departments: new Set(), doctors: new Set(),
@@ -97,6 +103,7 @@ async function aggregate({ reason, from, to, department } = {}) {
     const remarks = await remarksByDrug();
     const results = await Promise.all([...groups.values()].map(async (g) => ({
         key: g.key, reason: g.reason, label: g.label, description: g.description,
+        kind: g.kind, supplyCode: g.supplyCode,
         generic: g.generic, brand: g.brand, form: g.form, strength: g.strength,
         registrationNumber: g.registrationNumber,
         prescriptions: g.prescriptions, volume: g.volume,
@@ -112,10 +119,11 @@ async function aggregate({ reason, from, to, department } = {}) {
 // per-prescription detail for one drug + reason (who, which dept, how much)
 async function detail(key, reason, { from, to } = {}) {
     let label = '', description = '', generic = '', brand = '', form = '', strength = '', registrationNumber = null;
+    let kind = 'medicine', supplyCode = null;
     const rows = [];
     for (const { rx, it } of await allItems({ from, to })) {
         if (it.reason !== reason || db.drugKey(it) !== key) continue;
-        if (!label) { label = labelOf(it); description = descriptionOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; }
+        if (!label) { label = labelOf(it); description = descriptionOf(it); generic = it.genericName; brand = it.brandName; form = it.formName; strength = it.strength; registrationNumber = it.registrationNumber || null; kind = isSupply(it) ? 'supply' : 'medicine'; supplyCode = it.supplyCode || null; }
         rows.push({ date: rx.createdAt, department: rx.department, doctor: rx.doctor ? rx.doctor.name : '', patient: rx.patient, quantity: it.quantity, volumeMl: it.volumeMl || null });
     }
     rows.sort((a, b) => b.date - a.date);
@@ -127,7 +135,7 @@ async function detail(key, reason, { from, to } = {}) {
     const volumesMl = [...new Set(rows.map((r) => r.volumeMl).filter((v) => v != null))]
         .sort((a, b) => a - b);
     return {
-        key, reason, label, description, generic, brand, form, strength, registrationNumber,
+        key, reason, label, description, kind, supplyCode, generic, brand, form, strength, registrationNumber,
         prescriptions: rows.length,
         volume: rows.reduce((s, r) => s + r.quantity, 0),   // total qty, not mL — see tally()
         volumesMl,

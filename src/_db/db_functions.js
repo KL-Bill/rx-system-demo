@@ -3,7 +3,11 @@ const catalogCache = require('./catalog-cache');
 
 const norm = (x) => String(x || '').trim().toLowerCase();
 // stable identity for a prescribed product, used to group demand and key review status
-const drugKey = (m) => [m.genericName, m.brandName, m.formName, m.strength].map(norm).join('|');
+// A supply line is keyed by its description alone, under its own namespace,
+// so a supply called "ALCOHOL" never groups with a medicine of that generic.
+const drugKey = (m) => (m.kind === 'supply'
+    ? 'supply|' + norm(m.description || m.genericName)
+    : [m.genericName, m.brandName, m.formName, m.strength].map(norm).join('|'));
 
 const toNum = (x) => (x == null ? null : Number(x));
 
@@ -705,6 +709,143 @@ const restoreCatalogRow = async (id) => {
     return rowCount;
 };
 
+// ---------- medical supplies ----------
+// A flat list — gloves, catheters, sutures — with Bizbox's item code where it
+// came from a Bizbox export. Small (under a thousand rows), so it is searched
+// straight in SQL rather than through the medicine catalog cache.
+const SUPPLY_COLUMNS = `s.id, s.code, s.description, s.ihf AS "inBizbox",
+    s.bizbox_seen_at AS "seenAt", s.deleted_at AS "deletedAt", s.merged_into AS "mergedInto"`;
+const mapSupply = (r) => ({ ...r, seenAt: toNum(r.seenAt), deletedAt: toNum(r.deletedAt) });
+
+// the nurse's supply box: every typed word must appear in the description or code
+const searchSupplies = async ({ q = '', limit = 50 } = {}) => {
+    const words = norm(q).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const params = [], where = ['s.deleted_at IS NULL'];
+    for (const w of words) { params.push(w); where.push(`strpos(lower(s.description || ' ' || COALESCE(s.code, '')), $${params.length}) > 0`); }
+    params.push(words[0]);
+    const first = params.length;
+    const { rows } = await pool.query(`
+        SELECT ${SUPPLY_COLUMNS} FROM supplies s WHERE ${where.join(' AND ')}
+        ORDER BY (left(lower(s.description), length($${first})) = $${first}) DESC, lower(s.description)
+        LIMIT ${Math.min(Number(limit) || 50, 100)}`, params);
+    return rows.map(mapSupply);
+};
+
+// exact, live — the Bizbox answer for a supply line, like findProduct for a medicine
+const findSupply = async ({ description, code }) => {
+    if (code) {
+        const { rows } = await pool.query(`SELECT ${SUPPLY_COLUMNS} FROM supplies s WHERE s.code = $1 AND s.deleted_at IS NULL`, [code]);
+        if (rows[0]) return mapSupply(rows[0]);
+    }
+    if (!String(description || '').trim()) return null;
+    const { rows } = await pool.query(`
+        SELECT ${SUPPLY_COLUMNS} FROM supplies s
+        WHERE lower(trim(s.description)) = lower(trim($1)) AND s.deleted_at IS NULL
+        ORDER BY s.ihf DESC LIMIT 1`, [description]);
+    return rows[0] ? mapSupply(rows[0]) : null;
+};
+
+const getSupply = async (id) => {
+    const { rows } = await pool.query(`SELECT ${SUPPLY_COLUMNS} FROM supplies s WHERE s.id = $1`, [id]);
+    return rows[0] ? mapSupply(rows[0]) : null;
+};
+
+// Mark a supply as in Bizbox, creating it when it is new. Matches, in order:
+// the row `id` given (an import linking a typed supply to its Bizbox code),
+// then the code, then the description. A removed row that comes back is
+// revived rather than duplicated. seenAt marks an import: its wording is
+// Bizbox's own and replaces what the row said.
+const addSupplyToCatalog = async ({ id = null, code = null, description, seenAt = null, skipInvalidate }) => {
+    description = String(description || '').replace(/\s+/g, ' ').trim();
+    code = String(code || '').trim() || null;
+    let row = null;
+    if (id) row = (await pool.query('SELECT id, code FROM supplies WHERE id = $1', [id])).rows[0];
+    if (!row && code) row = (await pool.query('SELECT id, code FROM supplies WHERE code = $1', [code])).rows[0];
+    if (!row && description) {
+        row = (await pool.query(
+            'SELECT id, code FROM supplies WHERE lower(trim(description)) = lower(trim($1)) ORDER BY (deleted_at IS NOT NULL), ihf DESC LIMIT 1',
+            [description])).rows[0];
+    }
+    if (row) {
+        await pool.query(`
+            UPDATE supplies SET ihf = true, deleted_at = NULL, merged_into = NULL,
+                code = COALESCE(code, $2),
+                description = CASE WHEN $4::bigint IS NOT NULL AND $3::text <> '' THEN $3 ELSE description END,
+                bizbox_seen_at = COALESCE($4, bizbox_seen_at)
+            WHERE id = $1`, [row.id, code, description, seenAt]);
+        return row.id;
+    }
+    const { rows } = await pool.query(
+        'INSERT INTO supplies (code, description, ihf, bizbox_seen_at) VALUES ($1, $2, true, $3) RETURNING id',
+        [code, description, seenAt]);
+    return rows[0].id;
+};
+
+// the Medicines page, Supplies view. bizbox: 'all' | 'yes' | 'no' | 'removed'
+const listSuppliesPage = async ({ q = '', bizbox = 'all', limit = 100, offset = 0 } = {}) => {
+    const params = [], where = [bizbox === 'removed' ? 's.deleted_at IS NOT NULL' : 's.deleted_at IS NULL'];
+    for (const w of norm(q).split(/\s+/).filter(Boolean)) {
+        params.push(w); where.push(`strpos(lower(s.description || ' ' || COALESCE(s.code, '')), $${params.length}) > 0`);
+    }
+    if (bizbox === 'yes') where.push('s.ihf');
+    if (bizbox === 'no') where.push('NOT s.ihf');
+    const cond = `WHERE ${where.join(' AND ')}`;
+    const total = (await pool.query(`SELECT count(*)::int AS n FROM supplies s ${cond}`, params)).rows[0].n;
+    params.push(Math.min(Number(limit) || 100, 500), Number(offset) || 0);
+    const { rows } = await pool.query(`
+        SELECT ${SUPPLY_COLUMNS} FROM supplies s ${cond}
+        ORDER BY s.ihf DESC, lower(s.description)
+        LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    return { total, rows: rows.map(mapSupply) };
+};
+
+// -> { conflict: id | null } — another live row with the same code or wording
+const updateSupply = async (id, { code, description, ihf }) => {
+    code = String(code || '').trim() || null;
+    description = String(description || '').replace(/\s+/g, ' ').trim();
+    const dup = await pool.query(`
+        SELECT id FROM supplies WHERE id <> $1 AND deleted_at IS NULL
+          AND ((code IS NOT NULL AND code = $2) OR lower(trim(description)) = lower(trim($3)))
+        LIMIT 1`, [id, code, description]);
+    if (dup.rows[0]) return { conflict: dup.rows[0].id };
+    await pool.query('UPDATE supplies SET code = $2, description = $3, ihf = $4 WHERE id = $1', [id, code, description, !!ihf]);
+    return { conflict: null };
+};
+
+// the duplicate is marked removed (pointing at the one kept); restorable
+const mergeSupplies = async (fromId, intoId) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const from = (await client.query('SELECT code, ihf, bizbox_seen_at FROM supplies WHERE id = $1', [fromId])).rows[0];
+        // a code is unique: it moves to the kept row only if that row has none
+        await client.query('UPDATE supplies SET code = NULL, deleted_at = $2, merged_into = $3 WHERE id = $1', [fromId, Date.now(), intoId]);
+        await client.query(`
+            UPDATE supplies SET ihf = ihf OR $2, code = COALESCE(code, $3),
+                bizbox_seen_at = GREATEST(bizbox_seen_at, $4) WHERE id = $1`,
+            [intoId, !!(from && from.ihf), from && from.code, from && from.bizbox_seen_at]);
+        await client.query('COMMIT');
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally { client.release(); }
+};
+const restoreSupply = async (id) => (await pool.query('UPDATE supplies SET deleted_at = NULL, merged_into = NULL WHERE id = $1', [id])).rowCount;
+
+// the import's view: every row, removed ones too, so a returning code revives its row
+const getAllSupplies = async () => {
+    const { rows } = await pool.query(`SELECT ${SUPPLY_COLUMNS} FROM supplies s`);
+    return rows.map(mapSupply);
+};
+const suppliesNotSeenSince = async (since, limit = 2000) => {
+    const { rows } = await pool.query(`
+        SELECT ${SUPPLY_COLUMNS} FROM supplies s
+        WHERE s.ihf AND s.deleted_at IS NULL AND (s.bizbox_seen_at IS NULL OR s.bizbox_seen_at < $1)
+        ORDER BY lower(s.description) LIMIT $2`, [since, limit]);
+    return rows.map(mapSupply);
+};
+
 // ---------- Bizbox imports (the job row IS the progress bar) ----------
 const mapImport = (r) => ({
     id: r.id, file: r.file, uploadedBy: r.uploaded_by, startedAt: toNum(r.started_at), finishedAt: toNum(r.finished_at),
@@ -881,6 +1022,7 @@ module.exports = {
     getStatus, setStatus,
     addRemark, getRemarks, getAllRemarks, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
+    searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,
     exclusionKey, getExclusions, addExclusion, removeExclusion, productsNotSeenSince,
     addAudit, getAudit,

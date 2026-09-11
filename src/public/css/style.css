@@ -328,3 +328,22 @@ button.link-btn:active { transform: none; }
 .mb-fields > .mb-row:first-child .mb-f2 { flex-basis: 160px; }
 .mb-fields > .mb-row:first-child .mb-f3 { flex-basis: 200px; }
 .mb-fields > .mb-row:first-child .mb-qty { flex: 0 0 70px; }
+
+/* ===== Medicine / Supply switch (nurse Add panel + Edit dialog) =====
+   .kind-host.kind-sup shows the Supply box and hides everything medicine-only
+   (generic, the brand/form/strength box and its split fields, Vol). Out of
+   stock, Qty and Sig are shared. !important: the medicine widget's own mode
+   rules, and the inline display it sets on the split note, must lose here. */
+.kind-host [data-kind="sup"] { display: none !important; }
+.kind-host.kind-sup [data-kind="sup"] { display: block !important; }
+.kind-host.kind-sup [data-kind="med"] { display: none !important; }
+.kind-host.kind-sup .mb-fields > .mb-row:first-child { margin-bottom: 10px; }
+.mb-row .mb-sup { flex: 3 1 360px; }
+.bh-left { display: inline-flex; align-items: center; gap: 10px; }
+.kind-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: #eef1f6; }
+.kind-seg button {
+    padding: 4px 13px; font-size: 12.5px; font-weight: 700; border-radius: 999px;
+    background: none; color: var(--muted); box-shadow: none;
+}
+.kind-seg button:hover { background: rgba(255, 255, 255, .6); color: var(--navy); }
+.kind-seg button.on { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(20, 48, 107, .16); }

@@ -343,3 +343,21 @@ select.dr-quick { width: auto; padding: 7px 10px; font-size: 13px; }
 .period input[type="date"] { width: auto; padding: 7px 10px; font-size: 13px; }
 .fpop-row .f-val input[type="date"] { flex: 0 0 140px; width: 140px; }
 .fpop-row .f-val select.dr-quick { flex: 0 1 auto; width: auto; }
+
+/* Review / Reports: Medicine / Supply pill under the name */
+.kind-line { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-weight: 400; }
+.kind-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 999px; border: 1px solid #cfd8e6;
+    background: #eef1f6; color: var(--muted); font-size: .8em; font-weight: 700; letter-spacing: .02em; line-height: 1.5;
+}
+.kind-code { color: var(--muted); font-size: .88em; font-family: ui-monospace, Consolas, monospace; }
+.kind-pill.med { background: var(--navy-soft, #e8eefb); border-color: #c9d6f2; color: var(--navy); }
+/* Review: the drawer's "View all remarks" and the history modal */
+.rmk-all-btn { align-self: flex-start; }
+#rmkDlg { width: min(620px, calc(100vw - 32px)); }
+.rmk-all { max-height: 60vh; overflow-y: auto; margin-bottom: 0; padding-right: 2px; }
+
+/* table cells: a pill never breaks inside ("Not in / Bizbox"), and neither
+   does a column header ("# / RX") — the table scrolls sideways instead */
+table.dense .badge { white-space: nowrap; }
+table.dense th { white-space: nowrap; }

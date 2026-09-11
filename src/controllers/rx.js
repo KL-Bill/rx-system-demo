@@ -46,6 +46,16 @@ const product = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
+const supplies = async (req, res) => {
+    try { return res.json({ success: true, ...(await rxModel.supplies(str(req.query.q))) }); }
+    catch (err) { return handle(res, err); }
+};
+const supply = async (req, res) => {
+    try {
+        return res.json({ success: true, ...(await rxModel.getSupply({ description: str(req.query.description), code: str(req.query.code) })) });
+    } catch (err) { return handle(res, err); }
+};
+
 const create = async (req, res) => {
     try {
         const result = await rxModel.createRx(req.body);
@@ -80,4 +90,4 @@ const reprint = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
-module.exports = { stations, doctors, suggest, forms, product, create, history, reprint };
+module.exports = { stations, doctors, suggest, forms, product, supplies, supply, create, history, reprint };

@@ -102,3 +102,13 @@ function showDialog(opts = {}) {
         (btns[i > -1 ? i : btns.length - 1] || btns[0]).focus();
     });
 }
+
+// The small Medicine / Supply pill under a row's name on Review and Reports;
+// a supply also shows its Bizbox code beside it.
+function kindTag(r) {
+    if (!r) return '';
+    if (r.kind === 'supply') {
+        return `<div class="kind-line"><span class="kind-pill sup">Supply</span>${r.supplyCode ? `<span class="kind-code">${escapeHtml(r.supplyCode)}</span>` : ''}</div>`;
+    }
+    return '<div class="kind-line"><span class="kind-pill med">Medicine</span></div>';
+}

@@ -37,6 +37,14 @@ const listPrescriptions = async ({ from, to, department, reason, q } = {}) => {
 const getDetail = (key, reason) => demand.detail(key, reason);
 const getAudit = () => db.getAudit();
 
+// A reviewed row is a supply when its key says so (db.drugKey namespaces
+// supplies as "supply|<description>"); "added to Bizbox" then lands in the
+// supply list, not the generic/brand/form/strength tree.
+const isSupplyKey = (key) => String(key || '').startsWith('supply|');
+const addDrugToBizbox = (key, d = {}) => (isSupplyKey(key)
+    ? db.addSupplyToCatalog({ code: d.supplyCode || null, description: d.generic || d.description })
+    : db.addToCatalog({ genericName: d.generic, brandName: d.brand, formName: d.form, strength: d.strength }));
+
 const VALID = {
     not_in_formulary: ['under_therapeutics', 'added_to_formulary'],
     out_of_stock: ['restocked'],
@@ -49,9 +57,7 @@ const setStatus = async (key, reason, action, drug, actor, authorizerPassword) =
     await db.setStatus(reason, key, { status: action, statusDate: Date.now(), actor: actor.name, authorizedBy: authorizedBy.name });
 
     // adding to Bizbox flips the product's ihf flag in the merged catalog
-    if (action === 'added_to_formulary' && drug) {
-        await db.addToCatalog({ genericName: drug.generic, brandName: drug.brand, formName: drug.form, strength: drug.strength });
-    }
+    if (action === 'added_to_formulary' && drug) await addDrugToBizbox(key, drug);
 
     await db.addAudit({ action: 'review_status', drug: drug && drug.label, reason, status: action, actor: actor.name, authorizedBy: authorizedBy.name });
     return demand.detail(key, reason);
@@ -69,9 +75,7 @@ const setStatusBulk = async (drugs, action, actor, authorizerPassword) => {
 
     for (const d of drugs) {
         await db.setStatus(d.reason, d.key, { status: action, statusDate: Date.now(), actor: actor.name, authorizedBy: authorizedBy.name });
-        if (action === 'added_to_formulary') {
-            await db.addToCatalog({ genericName: d.generic, brandName: d.brand, formName: d.form, strength: d.strength });
-        }
+        if (action === 'added_to_formulary') await addDrugToBizbox(d.key, d);
         await db.addAudit({ action: 'review_status', drug: d.label, reason: d.reason, status: action, actor: actor.name, authorizedBy: authorizedBy.name });
     }
     return { updated: drugs.length };
@@ -112,7 +116,11 @@ const addRemark = async ({ key, reason, remark, note, drug, resolve }, actor, au
 
     let resolvedStatus = null;
     if (remark === 'available_in_bizbox') {
-        if (reason === 'not_in_formulary') {
+        if (reason === 'not_in_formulary' && isSupplyKey(key)) {
+            // a supply has nothing to confirm but its wording: the one prescribed
+            await addDrugToBizbox(key, { ...(drug || {}), ...(resolve || {}) });
+            resolvedStatus = 'added_to_formulary';
+        } else if (reason === 'not_in_formulary') {
             const product = cleanProduct(resolve);
             if (!product.genericName) throw httpError(400, 'Confirm the medicine to add to Bizbox first');
             await db.addToCatalog(product);
@@ -173,7 +181,38 @@ const addCatalogProduct = async (body, actor) => {
     return { added: true, created: !existing, resolved, label };
 };
 
+// Add one supply to Bizbox by hand — the supply version of the above, with
+// the same "it is being tracked in review" confirmation.
+const addCatalogSupply = async (body, actor) => {
+    const description = String(body.description || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const code = String(body.code || '').trim().slice(0, 60) || null;
+    if (!description) throw httpError(400, 'Enter the supply');
+
+    const existing = await db.findSupply({ description, code });
+    if (existing && existing.inBizbox) throw httpError(409, 'This supply is already in Bizbox.');
+
+    const key = db.drugKey({ kind: 'supply', description });
+    const tracked = (await demand.aggregate({ reason: 'all' })).filter((r) => r.key === key && !r.resolved && r.reason !== 'normal');
+    if (tracked.length && !body.confirm) {
+        return {
+            needsConfirm: true,
+            matches: tracked.map((r) => ({ reason: r.reason, label: r.label, description: r.description, prescriptions: r.prescriptions, status: r.status })),
+        };
+    }
+
+    await db.addSupplyToCatalog({ id: existing ? existing.id : null, code, description });
+    let resolved = 0;
+    for (const r of tracked) {
+        if (r.reason !== 'not_in_formulary') continue;
+        await db.setStatus(r.reason, r.key, { status: 'added_to_formulary', statusDate: Date.now(), actor: actor.name, authorizedBy: actor.name });
+        await db.addAudit({ action: 'review_status', drug: r.label, reason: r.reason, status: 'added_to_formulary', actor: actor.name, authorizedBy: actor.name });
+        resolved += 1;
+    }
+    await db.addAudit({ action: 'catalog_add', drug: description, reason: null, status: existing ? 'flagged' : 'created', actor: actor.name, authorizedBy: actor.name });
+    return { added: true, created: !existing, resolved, label: description };
+};
+
 module.exports = {
     getReview, getDetail, setStatus, setStatusBulk, getAudit, listPrescriptions,
-    REMARKS, listRemarks, addRemark, similarProducts, addCatalogProduct,
+    REMARKS, listRemarks, addRemark, similarProducts, addCatalogProduct, addCatalogSupply,
 };

@@ -8,6 +8,8 @@ router.get('/doctors', c.doctors);
 router.get('/suggest', c.suggest);
 router.get('/forms', c.forms);
 router.get('/product', c.product);
+router.get('/supplies', c.supplies);
+router.get('/supply', c.supply);
 router.post('/', c.create);
 // the station's own history: answers only for receipts the kiosk presents
 router.post('/history', c.history);

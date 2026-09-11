@@ -15,6 +15,10 @@
  *   Already in RX Formulary  nothing to do
  * (Bizbox is the hospital's main system; the RX Formulary is this app's list)
  * Blank, duplicate and remembered lines are a footnote.
+ *
+ * A supplies file (code + description, e.g. MEDSUPP) runs the same flow
+ * without the first group: supplies are matched by Bizbox code, then by
+ * wording, with nothing to split and so nothing to decide.
  */
 (function (global) {
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -57,6 +61,10 @@
     };
 
     function mount(root) {
+        const isSup = () => !!(job && job.summary && job.summary.kind === 'supply');
+        const groupsNow = () => (isSup() ? GROUPS.filter(([k]) => k !== 'decide') : GROUPS);
+        const nouns = () => (isSup() ? ['supply', 'supplies'] : ['medicine', 'medicines']);
+        const plural = (n) => nouns()[n === 1 ? 0 : 1];
         let job = null;          // the import being worked on (summary only)
         let items = null;        // its rows, when in review / done
         let group = 'decide';
@@ -87,7 +95,7 @@
                 const c = j.summary.counts;
                 const out = r ? `added ${r.created} · marked ${r.flagged + r.linked} · already in RX Formulary ${r.unchanged}${j.summary.missingCount ? ` · <span class="muted">${j.summary.missingCount} not in file</span>` : ''}`
                     : c ? `to decide ${(c.attention || 0) + (c.same || 0)} · new ${(c.new || 0) + (c.similar || 0)} · to mark ${c.flag || 0}` : (j.summary.error ? `<span class="muted">${esc(j.summary.error)}</span>` : '');
-                return `<tr><td>${fmtDT(j.startedAt)}</td><td class="mono">${esc(j.file)}</td><td>${esc(j.uploadedBy || '')}</td><td><span class="badge ${STATUS_TONE[j.status] || 'gray'}">${STATUS_LABEL[j.status] || j.status}</span></td><td>${j.total || j.summary.rowCount || ''}</td><td class="muted" style="font-size:12px">${out}</td><td class="row-actions"><button class="ghost sm" data-open="${j.id}" type="button">${j.status === 'awaiting_review' ? 'Continue' : 'Open'}</button></td></tr>`;
+                return `<tr><td>${fmtDT(j.startedAt)}</td><td class="mono">${esc(j.file)}${j.summary.kind === 'supply' ? ' <span class="badge gray">Supplies</span>' : ''}</td><td>${esc(j.uploadedBy || '')}</td><td><span class="badge ${STATUS_TONE[j.status] || 'gray'}">${STATUS_LABEL[j.status] || j.status}</span></td><td>${j.total || j.summary.rowCount || ''}</td><td class="muted" style="font-size:12px">${out}</td><td class="row-actions"><button class="ghost sm" data-open="${j.id}" type="button">${j.status === 'awaiting_review' ? 'Continue' : 'Open'}</button></td></tr>`;
             }).join('')}</tbody></table>`;
             host.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => open(b.dataset.open); });
         }
@@ -98,7 +106,7 @@
             main.innerHTML = `
                 <div class="card imp-card">
                     <h2>Import from Bizbox</h2>
-                    <p class="sub">Upload the Bizbox medicine export (.xlsx or .csv, two columns: generic and description) to bring the RX Formulary in step with Bizbox. Nothing is changed until you review and press Apply.</p>
+                    <p class="sub">Upload a Bizbox export (.xlsx or .csv) to bring the RX Formulary in step with Bizbox: the medicine list (generic and description) or the medical supplies list (item code and description). Nothing is changed until you review and press Apply.</p>
                     <label class="imp-drop" id="impDrop">
                         <input type="file" id="impFile" accept=".xlsx,.csv" hidden>
                         <div><b>Choose the export file</b><div class="muted" style="font-size:12.5px">or drop it here</div></div>
@@ -126,14 +134,20 @@
 
         // ---------- columns ----------
         function renderColumns(up) {
+            const g = up.guess || {};
             const opts = (sel) => up.headers.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h)}</option>`).join('');
             main.innerHTML = `
                 <div class="card imp-card">
                     <h2>Which column is which?</h2>
-                    <p class="sub"><b>${esc(up.rowCount)}</b> rows in the file. Confirm the generic column and the description column, then analyze.</p>
+                    <p class="sub"><b>${esc(up.rowCount)}</b> rows in the file. Say what the file lists and confirm its columns, then analyze.</p>
                     <div class="mb-row">
-                        <div class="search-wrap"><label>Generic column</label><select id="impGen">${opts(up.guess.genericCol)}</select></div>
-                        <div class="search-wrap"><label>Description column (brand / strength / form)</label><select id="impDesc">${opts(up.guess.descCol)}</select></div>
+                        <div class="search-wrap" style="flex:0 1 220px"><label>What is in this file?</label><select id="impKind">
+                            <option value="medicine" ${g.kind !== 'supply' ? 'selected' : ''}>Medicines</option>
+                            <option value="supply" ${g.kind === 'supply' ? 'selected' : ''}>Medical supplies</option></select></div>
+                        <div class="search-wrap" data-k="medicine"><label>Generic column</label><select id="impGen">${opts(g.genericCol)}</select></div>
+                        <div class="search-wrap" data-k="medicine"><label>Description column (brand / strength / form)</label><select id="impDesc">${opts(g.descCol)}</select></div>
+                        <div class="search-wrap" data-k="supply"><label>Code column</label><select id="impCode"><option value="-1">(no code column)</option>${opts(g.codeCol)}</select></div>
+                        <div class="search-wrap" data-k="supply"><label>Description column</label><select id="impSupDesc">${opts(g.supplyDescCol == null ? 1 : g.supplyDescCol)}</select></div>
                     </div>
                     ${up.sample.length ? `<div class="tbl-wrap" style="margin-top:12px"><table class="dense imp-sample"><thead><tr>${up.headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${up.sample.map((r) => `<tr>${up.headers.map((_, i) => `<td>${esc(r[i] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}
                     <div class="errbox" id="impErr"></div>
@@ -143,10 +157,21 @@
                     </div>
                 </div>`;
             main.querySelector('#impBack').onclick = async () => { await api(`/api/import/${up.id}/cancel`, { body: {} }); renderUpload(); loadHistory(); };
+            const kindSel = main.querySelector('#impKind');
+            const showKind = () => main.querySelectorAll('[data-k]').forEach((el) => { el.style.display = el.dataset.k === kindSel.value ? '' : 'none'; });
+            kindSel.onchange = showKind; showKind();
             main.querySelector('#impAnalyze').onclick = async () => {
-                const genericCol = Number(main.querySelector('#impGen').value), descCol = Number(main.querySelector('#impDesc').value);
-                if (genericCol === descCol) { err('impErr', 'Pick two different columns.'); return; }
-                const res = await api(`/api/import/${up.id}/analyze`, { body: { genericCol, descCol } });
+                let body;
+                if (kindSel.value === 'supply') {
+                    const codeCol = Number(main.querySelector('#impCode').value), descCol = Number(main.querySelector('#impSupDesc').value);
+                    if (codeCol === descCol) { err('impErr', 'Pick two different columns.'); return; }
+                    body = { kind: 'supply', codeCol, descCol };
+                } else {
+                    const genericCol = Number(main.querySelector('#impGen').value), descCol = Number(main.querySelector('#impDesc').value);
+                    if (genericCol === descCol) { err('impErr', 'Pick two different columns.'); return; }
+                    body = { kind: 'medicine', genericCol, descCol };
+                }
+                const res = await api(`/api/import/${up.id}/analyze`, { body });
                 if (!res.ok) { err('impErr', res.data.message || 'Could not start'); return; }
                 open(up.id);
             };
@@ -187,7 +212,7 @@
             const c = job.summary.counts || {};
             const result = job.summary.result || {};
             const live = analyzing
-                ? [['Needs your decision', (c.attention || 0) + (c.same || 0)], ['New to RX Formulary', (c.new || 0) + (c.similar || 0)], ['Now marked In Bizbox', c.flag || 0], ['Already in RX Formulary', c.unchanged || 0], ['Skipped lines', c.excluded || 0]]
+                ? [...(isSup() ? [] : [['Needs your decision', (c.attention || 0) + (c.same || 0)]]), ['New to RX Formulary', (c.new || 0) + (c.similar || 0)], ['Now marked In Bizbox', c.flag || 0], ['Already in RX Formulary', c.unchanged || 0], ['Skipped lines', c.excluded || 0]]
                 : [['Added to RX Formulary', result.created || 0], ['Marked In Bizbox', (result.flagged || 0) + (result.linked || 0)], ['Already in RX Formulary', result.unchanged || 0], ['Skipped', (result.skipped || 0) + (result.excluded || 0)]];
             if (!main.querySelector('#impBar')) {
                 main.innerHTML = `
@@ -203,7 +228,7 @@
                 if (!analyzing) main.querySelector('#impCancel').style.display = 'none';
             }
             main.querySelector('#impPhase').textContent = analyzing ? 'Analyzing the file…' : 'Applying to the RX Formulary…';
-            main.querySelector('#impPhaseSub').textContent = analyzing ? 'Each line is compared with the RX Formulary. Nothing is saved yet.' : 'Adding and marking medicines. Please keep this page open.';
+            main.querySelector('#impPhaseSub').textContent = analyzing ? 'Each line is compared with the RX Formulary. Nothing is saved yet.' : `Adding and marking ${nouns()[1]}. Please keep this page open.`;
             main.querySelector('#impBar').style.width = pct + '%';
             main.querySelector('#impCount').textContent = `${analyzing ? 'Checked' : 'Applied'} ${job.processed} of ${job.total} (${pct}%)`;
             main.querySelector('#impLive').innerHTML = live.map(([l, n]) => `<span class="imp-chip">${l}: <b>${n}</b></span>`).join('');
@@ -218,13 +243,13 @@
         // ---------- review: one screen, four groups ----------
         const countsNow = () => { const c = { decide: 0, new: 0, marked: 0, unchanged: 0, skipped: 0, excluded: 0 }; items.forEach((r) => { c[groupOf(r)]++; }); return c; };
         const pendingCount = () => items.filter((r) => !r.excluded && (r.action === 'review' || (r.action !== 'skip' && !r.generic))).length;
-        const firstGroupWithRows = () => { const c = countsNow(); return GROUPS.map(([k]) => k).find((k) => c[k]) || 'new'; };
-        const shown = () => items.filter((r) => groupOf(r) === group && (!filter || `${r.generic} ${r.description} ${r.brand} ${r.form} ${r.strength}`.toLowerCase().includes(filter)));
+        const firstGroupWithRows = () => { const c = countsNow(); return groupsNow().map(([k]) => k).find((k) => c[k]) || 'new'; };
+        const shown = () => items.filter((r) => groupOf(r) === group && (!filter || `${r.generic} ${r.description} ${r.brand} ${r.form} ${r.strength} ${r.code || ''}`.toLowerCase().includes(filter)));
 
         function renderReview() {
             const readOnly = job.status !== 'awaiting_review';
             const c = countsNow();
-            const [, gLabel, gDesc] = GROUPS.find(([k]) => k === group);
+            const [, gLabel, gDesc] = GROUPS.find(([k]) => k === group) || ['', '', ''];
             const left = pendingCount();
             const footnote = c.excluded + c.skipped;
             main.innerHTML = `
@@ -233,16 +258,16 @@
                         <div><h2>${readOnly ? 'What the import did — ' : ''}${esc(job.file)}</h2>
                         <p class="sub" style="margin:0">${readOnly ? `Applied ${fmtDT(job.finishedAt)} by ${esc(job.summary.appliedBy || job.uploadedBy || '')}.` : `${job.total} lines checked against the RX Formulary. Decide the first group, glance at the rest, then Apply.`}</p></div>
                         <div class="tb-right">
-                            <input id="impFilter" placeholder="Find a medicine…" value="${esc(filter)}" style="max-width:220px">
+                            <input id="impFilter" placeholder="Find a ${nouns()[0]}…" value="${esc(filter)}" style="max-width:220px">
                             ${readOnly ? `<a class="btn-link" href="/api/import/${job.id}/report.csv">Download CSV</a><button class="ghost" id="impClose" type="button">Close</button>`
                                 : `<button class="ghost" id="impCancel" type="button">Discard import</button><button id="impApply" type="button" ${left ? 'disabled' : ''}>${left ? `Apply import (${left} left to decide)` : 'Apply import'}</button>`}
                         </div>
                     </div>
                     ${readOnly ? '' : '<div class="infobox" style="margin:4px 0 10px">Nothing is written to the RX Formulary until you press <b>Apply import</b>. Your choices below are only saved, so you can leave and come back, or discard the whole import.</div>'}
-                    <div class="imp-groups">${GROUPS.map(([k, l]) => `<button type="button" class="imp-group ${k} ${k === group ? 'active' : ''} ${!c[k] ? 'empty' : ''}" data-g="${k}"><span class="n">${c[k]}</span><span class="l">${readOnly ? DONE_LABEL[k] : l}</span></button>`).join('')}</div>
+                    <div class="imp-groups">${groupsNow().map(([k, l]) => `<button type="button" class="imp-group ${k} ${k === group ? 'active' : ''} ${!c[k] ? 'empty' : ''}" data-g="${k}"><span class="n">${c[k]}</span><span class="l">${readOnly ? DONE_LABEL[k] : l}</span></button>`).join('')}</div>
                     <p class="sub imp-tabdesc">${readOnly ? '' : gDesc}${group === 'decide' && !readOnly && c.decide ? ' <button class="ghost sm" id="impAcceptAll" type="button">Accept every suggestion</button>' : ''}</p>
                     <div class="tbl-wrap imp-grid-wrap"><table class="dense imp-grid" id="impGrid"></table></div>
-                    ${footnote ? `<div class="imp-foot muted">${c.excluded ? `${c.excluded} line${c.excluded === 1 ? '' : 's'} skipped automatically (blank, duplicate, or remembered as not a medicine)` : ''}${c.excluded && c.skipped ? ' · ' : ''}${c.skipped ? `${c.skipped} skipped by you` : ''} — <a href="#" id="impShowSkipped">${group === 'skipped' || group === 'excluded' ? 'back to the groups' : 'show'}</a></div>` : ''}
+                    ${footnote ? `<div class="imp-foot muted">${c.excluded ? `${c.excluded} line${c.excluded === 1 ? '' : 's'} skipped automatically (blank, duplicate, or remembered as not a ${nouns()[0]})` : ''}${c.excluded && c.skipped ? ' · ' : ''}${c.skipped ? `${c.skipped} skipped by you` : ''} — <a href="#" id="impShowSkipped">${group === 'skipped' || group === 'excluded' ? 'back to the groups' : 'show'}</a></div>` : ''}
                 </div>`;
             main.querySelectorAll('.imp-group').forEach((b) => { b.onclick = () => { group = b.dataset.g; renderReview(); }; });
             const f = main.querySelector('#impFilter');
@@ -264,8 +289,14 @@
         }
 
         // what will happen to a row, in one line
+        const supText = (desc, code) => `<b>${esc(desc)}</b>${code ? ` <span class="muted mono">${esc(code)}</span>` : ''}`;
         const outcomeText = (r, past) => {
             const g = groupOf(r);
+            if (r.kind === 'supply') {
+                if (g === 'new') return `${past ? 'Added to RX Formulary' : 'Will be added to RX Formulary'} as ${supText(r.description, r.code)}`;
+                if (g === 'marked') return `${past ? 'Marked' : 'Will mark'} ${supText(r.match ? r.match.generic : r.description, r.match && r.match.code)} In Bizbox`;
+                if (g === 'unchanged') return `Already in RX Formulary as ${supText(r.match ? r.match.generic : r.description, r.match && r.match.code)}`;
+            }
             if (g === 'new') return `${past ? 'Added to RX Formulary' : 'Will be added to RX Formulary'} as <b>${esc(r.generic)}</b> — ${esc(ownText(r))}`;
             if (g === 'marked') return `${past ? 'Marked' : 'Will mark'} <b>${esc(r.match ? r.match.generic : r.generic)}</b> — ${esc(productText(r.match))}`;
             if (g === 'unchanged') return `Already in RX Formulary as <b>${esc(r.match ? r.match.generic : r.generic)}</b> — ${esc(productText(r.match))}`;
@@ -311,7 +342,7 @@
                 head = `<th>#</th><th>Bizbox line</th><th>${past ? 'What happened' : 'What will happen'}</th>${readOnly ? '' : '<th></th>'}`;
                 body = list.slice(0, 400).map((r) => `<tr data-i="${r.i}" class="${groupOf(r) === 'skipped' ? 'inactive' : ''}">
                         <td class="muted">${r.i + 2}</td>
-                        <td class="imp-desc">${esc(r.description)}</td>
+                        <td class="imp-desc">${r.code ? `<span class="muted mono">${esc(r.code)}</span> ` : ''}${esc(r.description)}</td>
                         <td class="imp-out">${outcomeText(r, past)}${r.error ? ` <span class="badge red">${esc(r.error)}</span>` : ''}${r.note && groupOf(r) !== 'excluded' ? ` <span class="muted">(${esc(r.note)})</span>` : ''}</td>
                         ${readOnly ? '' : `<td class="imp-acts">${groupOf(r) === 'skipped' ? '<button type="button" class="ghost sm act-undo">Undo skip</button>' : groupOf(r) === 'excluded' ? '' : '<button type="button" class="ghost sm act-skip">Skip</button>'}</td>`}
                     </tr>`).join('');
@@ -373,7 +404,7 @@
             const c = countsNow();
             const go = await showDialog({
                 kind: 'warn', title: 'Apply this import to the RX Formulary?',
-                message: `${c.new} medicine${c.new === 1 ? '' : 's'} will be added to the RX Formulary, ${c.marked} marked In Bizbox, ${c.unchanged} already in the RX Formulary (Bizbox wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. This cannot be undone from here.`,
+                message: `${c.new} ${plural(c.new)} will be added to the RX Formulary, ${c.marked} marked In Bizbox, ${c.unchanged} already in the RX Formulary (Bizbox wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. This cannot be undone from here.`,
                 actions: [{ label: 'Apply import', value: true, variant: 'primary' }, { label: 'Not yet', value: false, variant: 'ghost', cancel: true }],
             });
             if (!go) return;
@@ -391,11 +422,11 @@
                     <h2>Import applied</h2>
                     <p class="sub">${esc(job.file)} · ${fmtDT(job.finishedAt)} · by ${esc(job.summary.appliedBy || job.uploadedBy || '')}</p>
                     <div class="imp-summary">
-                        ${[['created', 'Added to RX Formulary', 'New medicines, now marked In Bizbox'], ['linked', 'Marked In Bizbox', 'Already in the RX Formulary, now marked'], ['unchanged', 'Already in RX Formulary', 'No change needed'], ['skipped', 'Skipped', 'By you, or not a medicine']].map(([k, l, d]) => `<div class="imp-sum"><div class="n">${k === 'linked' ? (r.linked || 0) + (r.flagged || 0) : k === 'skipped' ? (r.skipped || 0) + (r.excluded || 0) : (r[k] || 0)}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join('')}
+                        ${[['created', 'Added to RX Formulary', `New ${nouns()[1]}, now marked In Bizbox`], ['linked', 'Marked In Bizbox', 'Already in the RX Formulary, now marked'], ['unchanged', 'Already in RX Formulary', 'No change needed'], ['skipped', 'Skipped', `By you, or not a ${nouns()[0]}`]].map(([k, l, d]) => `<div class="imp-sum"><div class="n">${k === 'linked' ? (r.linked || 0) + (r.flagged || 0) : k === 'skipped' ? (r.skipped || 0) + (r.excluded || 0) : (r[k] || 0)}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join('')}
                     </div>
-                    <div class="okbox" style="margin-top:12px">The RX Formulary now shows these medicines as In Bizbox. Anything the file did not mention was left exactly as it was.</div>
-                    ${missing.length ? `<details class="imp-missing"><summary><b>${job.summary.missingCount}</b> medicine${job.summary.missingCount === 1 ? '' : 's'} marked In Bizbox in the RX Formulary but not in this file — for information only, nothing was changed</summary>
-                        <div class="tbl-wrap"><table class="dense"><thead><tr><th>Generic</th><th>Brand / Form / Strength</th><th>Last seen in a file</th></tr></thead><tbody>${missing.map((m) => `<tr><td>${esc(m.generic)}</td><td>${esc(m.description)}</td><td class="muted">${m.seenAt ? fmtDT(m.seenAt) : 'never'}</td></tr>`).join('')}</tbody></table></div>
+                    <div class="okbox" style="margin-top:12px">The RX Formulary now shows these ${nouns()[1]} as In Bizbox. Anything the file did not mention was left exactly as it was.</div>
+                    ${missing.length ? `<details class="imp-missing"><summary><b>${job.summary.missingCount}</b> ${plural(job.summary.missingCount)} marked In Bizbox in the RX Formulary but not in this file — for information only, nothing was changed</summary>
+                        <div class="tbl-wrap"><table class="dense"><thead><tr>${isSup() ? '<th>Supply</th><th>Code</th>' : '<th>Generic</th><th>Brand / Form / Strength</th>'}<th>Last seen in a file</th></tr></thead><tbody>${missing.map((m) => `<tr><td>${esc(m.generic)}</td><td>${esc(m.description)}</td><td class="muted">${m.seenAt ? fmtDT(m.seenAt) : 'never'}</td></tr>`).join('')}</tbody></table></div>
                         ${job.summary.missingCount > missing.length ? `<div class="muted" style="font-size:12px;margin-top:6px">First ${missing.length} shown.</div>` : ''}</details>` : ''}
                     <div class="mb-foot" style="justify-content:flex-end">
                         <a class="btn-link" href="/api/import/${job.id}/report.csv">Download row report (CSV)</a>

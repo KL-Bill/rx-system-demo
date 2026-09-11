@@ -45,7 +45,32 @@ const getProduct = async ({ generic, brand, form, strength }) => {
     return { product: await db.findProduct({ generic, brand, form, strength }) };
 };
 
+// ----- supply picker -----
+// the Supply box: gloves, catheters... searched by description or Bizbox code
+const supplies = async (q) => ({ supplies: await db.searchSupplies({ q, limit: 30 }) });
+// the exact supply, or null — the Bizbox answer for the nurse's status line
+const getSupply = async ({ description, code }) => ({ supply: await db.findSupply({ description, code }) });
+
 const stitch = (brand, strength, form) => [brand, strength, form].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+// A supply line follows the medicine rules: not in Bizbox wins, else the
+// nurse's out-of-stock tick, else normal. It keeps the medicine field names —
+// genericName carries the description, brand/form/strength stay blank — so
+// the slip, the demand grouping and every report read it without a branch.
+const resolveSupply = async (raw) => {
+    const typed = String(raw.description || raw.genericName || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!typed) throw httpError(400, 'A supply is missing its description');
+    const supply = await db.findSupply({ description: typed, code: String(raw.supplyCode || '').trim() || null });
+    const inBizbox = !!(supply && supply.inBizbox);
+    const reason = !inBizbox ? 'not_in_formulary' : (raw.outOfStock ? 'out_of_stock' : 'normal');
+    const description = (supply && supply.description) || typed;
+    return {
+        kind: 'supply', supplyCode: (supply && supply.code) || null,
+        genericName: description, brandName: '', formName: '', strength: '', description,
+        volumeMl: null, registrationNumber: null,
+        quantity: Number(raw.quantity) || 1, sig: String(raw.sig || '').trim().slice(0, 300), reason,
+    };
+};
 
 // items: [{ genericName, brandName, formName, strength, description, quantity, outOfStock }]
 const createRx = async ({ stationId, patient, address, age, sex, doctor, items }) => {
@@ -54,6 +79,7 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
     if (!Array.isArray(items) || items.length === 0) throw httpError(400, 'No medicines on the prescription');
 
     const resolved = await Promise.all(items.map(async (raw) => {
+        if (raw.kind === 'supply') return resolveSupply(raw);
         const genericName = (raw.genericName || '').trim();
         const brandName = (raw.brandName || '').trim();
         const formName = (raw.formName || '').trim();
@@ -129,4 +155,4 @@ const reprint = async ({ id, receipt }) => {
     return { id: rx.id, station: rx.station, department: rx.department, createdAt: rx.createdAt };
 };
 
-module.exports = { listStations, listDoctors, suggest, forms, getProduct, createRx, history, reprint };
+module.exports = { listStations, listDoctors, suggest, forms, getProduct, supplies, getSupply, createRx, history, reprint };

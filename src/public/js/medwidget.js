@@ -123,7 +123,7 @@
     //             the nurse to confirm. Once she edits one, the combo box locks
     //             and shows the stitched result — what will be saved.
     //   nobrand — "No brand" ticked: generic + form + strength, no combo box.
-    function createWidget({ p, sg, statusId, noteId, splitNoteId, clearsBelow = true, confirmBizbox = true }) {
+    function createWidget({ p, sg, statusId, noteId, splitNoteId, clearsBelow = true, confirmBizbox = true, active = () => true }) {
         const el = (f) => $(p + f);
         const box = (f) => $(sg + f);
         const fields = el('generic').closest('.mb-fields');
@@ -286,6 +286,7 @@
         const scheduleStatus = () => { clearTimeout(timers.status); timers.status = setTimeout(updateStatus, DEBOUNCE_MS); };
 
         async function updateStatus() {
+            if (!active()) return;          // the Supply box has the status line
             const s = values(); const st = $(statusId); const note = $(noteId);
             const mine = ++statusSeq;
             note.style.display = 'none';
@@ -296,7 +297,7 @@
             }
 
             const { ok, product: c } = await fetchProduct(s).catch(() => ({ ok: false, product: null }));
-            if (mine !== statusSeq) return;                     // the fields moved on while we asked
+            if (mine !== statusSeq || !active()) return;        // the fields moved on while we asked
             if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
 
             // liquids with a known volume (vaccines, IV bottles) prefill the Vol input
@@ -423,5 +424,119 @@
             ${opts.sig ? `<div class="mb-row mb-row3"><div class="mb-sig"><label for="${p}sig">Sig (instructions — optional)</label><input id="${p}sig" autocomplete="off"></div></div>` : ''}`;
     };
 
-    global.MedWidget = { create: createWidget, fetchProduct, missingField, html, formNames: () => formNames };
+    // ----- medical supplies: one box, the same Bizbox rules -----
+    // Gloves, catheters, sutures... no generic/brand/form/strength, just the
+    // description Bizbox lists (and its item code). Picking one Bizbox carries
+    // asks the same "are you sure?"; typing one it does not carry is allowed
+    // and prints bold, exactly like a medicine.
+    //   SupplyBox.create({ p, sg, statusId, noteId, active })
+    //     inputs: <p>supply (box), and the shared <p>oos / <p>qty / <p>sig
+    //     active: () => bool — the Add panel shares its status line with the
+    //             medicine widget, so only the kind on screen may write to it
+    //   SupplyBox.fetchSupply({ description, code }) -> { ok, supply }
+    async function fetchSupply(s) {
+        const params = new URLSearchParams({ description: s.description || '', code: s.code || '' });
+        const res = await api(`/api/rx/supply?${params}`);
+        if (!res.ok) return { ok: false, supply: null };
+        return { ok: true, supply: res.data.supply || null };
+    }
+
+    function createSupplyBox({ p, sg, statusId, noteId, active = () => true }) {
+        const input = $(p + 'supply'), list = $(sg + 'supply');
+        const stub = () => ({ value: '', checked: false });
+        const oos = $(p + 'oos') || stub(), qty = $(p + 'qty') || stub(), sig = $(p + 'sig') || stub();
+        let picked = null, confirmedKey = '', timer = null, statusTimer = null, seq = 0, statusSeq = 0, abort = null;
+
+        const values = () => {
+            const description = input.value.replace(/\s+/g, ' ').trim();
+            const same = picked && picked.description.toLowerCase() === description.toLowerCase();
+            return {
+                description, code: same ? (picked.code || '') : '', picked: !!same,
+                outOfStock: oos.checked, quantity: Number(qty.value) || 1, sig: sig.value.trim(),
+            };
+        };
+
+        async function search() {
+            const q = input.value.trim();
+            const mine = ++seq;
+            if (q.length < MIN_Q) {
+                list.innerHTML = `<div class="opt hint">Type ${MIN_Q} letters to search…</div>`;
+                list.style.display = document.activeElement === input ? 'block' : 'none';
+                return;
+            }
+            if (abort) abort.abort();
+            abort = new AbortController();
+            let rows;
+            try {
+                const res = await api(`/api/rx/supplies?${new URLSearchParams({ q })}`, { signal: abort.signal });
+                rows = res.ok ? (res.data.supplies || []) : [];
+            } catch { return; }
+            if (mine !== seq || document.activeElement !== input) { if (mine === seq) list.style.display = 'none'; return; }
+            if (!rows.length) { list.style.display = 'none'; return; }
+            list.innerHTML = rows.map((r, i) => `<div class="opt" data-i="${i}"><span>${escapeHtml(r.description)}</span>`
+                + (r.code ? `<span class="sub">${escapeHtml(r.code)}</span>` : '')
+                + `<span class="badges"><span class="badge ${r.inBizbox ? 'green' : 'amber'}">${r.inBizbox ? 'In Bizbox' : 'Not in Bizbox'}</span></span></div>`).join('');
+            list.style.display = 'block';
+            list.querySelectorAll('.opt').forEach((node) => {
+                node.addEventListener('mousedown', (e) => { e.preventDefault(); pick(rows[Number(node.dataset.i)]); });
+            });
+        }
+
+        async function pick(r) {
+            list.style.display = 'none';
+            if (r.inBizbox && confirmedKey !== r.description) {
+                const yes = await confirmInBizbox(r.description);
+                if (!yes) { input.value = ''; picked = null; scheduleStatus(); input.focus(); return; }
+                confirmedKey = r.description;
+            }
+            input.value = r.description;
+            picked = { description: r.description, code: r.code || '' };
+            scheduleStatus();
+        }
+
+        const scheduleStatus = () => { clearTimeout(statusTimer); statusTimer = setTimeout(updateStatus, DEBOUNCE_MS); };
+        async function updateStatus() {
+            if (!active()) return;
+            const s = values(); const st = $(statusId); const note = $(noteId);
+            const mine = ++statusSeq;
+            note.style.display = 'none';
+            if (!s.description) { st.textContent = ''; st.className = 'mb-status'; return; }
+            const { ok, supply } = await fetchSupply(s).catch(() => ({ ok: false, supply: null }));
+            if (mine !== statusSeq || !active()) return;
+            if (!ok) { st.textContent = '… could not check — server unreachable'; st.className = 'mb-status muted'; return; }
+            const inBizbox = !!(supply && supply.inBizbox);
+            st.textContent = inBizbox ? 'In Bizbox' : 'NOT in Bizbox';
+            st.className = 'mb-status ' + (inBizbox ? 'ok' : 'new');
+            if (supply && supply.code) { note.textContent = `Bizbox code ${supply.code}`; note.style.display = 'block'; }
+        }
+
+        input.addEventListener('input', () => {
+            picked = null;
+            clearTimeout(timer); timer = setTimeout(search, DEBOUNCE_MS);
+            scheduleStatus();
+        });
+        input.addEventListener('focus', () => { if (input.value.trim().length >= MIN_Q) search(); });
+        input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; }, 150));
+
+        return {
+            values, updateStatus,
+            hideBoxes: () => { list.style.display = 'none'; },
+            focus: () => input.focus(),
+            reset: () => {
+                input.value = ''; picked = null; confirmedKey = '';
+                oos.checked = false; qty.value = '1'; sig.value = '';
+                scheduleStatus();
+            },
+            load: (it) => {
+                input.value = it.description || it.genericName || '';
+                picked = it.fromCatalog ? { description: input.value, code: it.supplyCode || '' } : null;
+                confirmedKey = '';
+                oos.checked = !!it.outOfStock; qty.value = it.quantity; sig.value = it.sig || '';
+                updateStatus();
+            },
+        };
+    }
+
+    global.MedWidget = { create: createWidget, fetchProduct, missingField, html, confirmInBizbox, formNames: () => formNames };
+    global.SupplyBox = { create: createSupplyBox, fetchSupply };
 })(window);

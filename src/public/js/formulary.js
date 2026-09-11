@@ -1,6 +1,8 @@
 /* The Medicines page: two tabs.
  *   RX Formulary  browse and fix this app's medicine list — search, edit a
- *                 row, merge a duplicate into the one to keep, add one by hand
+ *                 row, merge a duplicate into the one to keep, add one by hand.
+ *                 A Medicines / Supplies switch shows the medical supplies
+ *                 (gloves, catheters...) the same way: a flat list with codes
  *   Import        bring the list in step with Bizbox (js/bizbox-import.js)
  *
  *   RxFormulary.mount(rootElement)
@@ -14,6 +16,7 @@
 
     function mount(root) {
         let q = '', bizbox = 'all', brand = 'any', offset = 0, total = 0, rows = [];
+        let kind = 'med';           // 'med' | 'sup' — which list the RX Formulary tab shows
         let tab = 'list';
 
         root.innerHTML = `
@@ -24,10 +27,14 @@
             <div id="medList">
                 <div class="card imp-card">
                     <div class="imp-h">
-                        <div><h2>RX Formulary</h2><p class="sub" style="margin:0">Every medicine this system knows. Marked ones are In Bizbox. Fix a spelling, merge a duplicate, or add one Bizbox carries that the list lacks.</p></div>
+                        <div><h2>RX Formulary</h2><p class="sub" style="margin:0" id="fmIntro">Every medicine this system knows. Marked ones are In Bizbox. Fix a spelling, merge a duplicate, or add one Bizbox carries that the list lacks.</p></div>
                         <div class="tb-right"><button class="sm" id="fmAdd" type="button">+ Add Medicine</button></div>
                     </div>
                     <div class="fm-bar">
+                        <div class="chips" id="fmKind" style="margin:0">
+                            <div class="chip active" data-v="med">Medicines</div>
+                            <div class="chip" data-v="sup">Supplies</div>
+                        </div>
                         <input id="fmQ" placeholder="Search generic, brand, form, strength…" style="max-width:360px">
                         <div class="chips" id="fmChips" style="margin:0">
                             <div class="chip active" data-v="all">All</div>
@@ -73,6 +80,35 @@
                 </div>
             </dialog>
 
+            <dialog id="fsEditDlg" class="dlg" aria-labelledby="fsEditTitle">
+                <div class="dlg-head"><h3 class="dlg-title" id="fsEditTitle">Edit supply</h3></div>
+                <div class="mb-row">
+                    <div class="search-wrap" style="flex:3 1 300px"><label for="fs-desc">Supply, as Bizbox writes it</label><input id="fs-desc" autocomplete="off"></div>
+                    <div class="search-wrap" style="flex:1 1 140px"><label for="fs-code">Bizbox code</label><input id="fs-code" autocomplete="off" placeholder="MEDSUP-00000"></div>
+                </div>
+                <label class="mb-check" style="margin-top:12px"><input type="checkbox" id="fs-ihf"> In Bizbox</label>
+                <div class="errbox" id="fsEditErr"></div>
+                <div class="dlg-actions">
+                    <button class="ghost" id="fsEditCancel" type="button">Cancel</button>
+                    <button id="fsEditSave" type="button">Save</button>
+                </div>
+            </dialog>
+
+            <dialog id="fsAddDlg" class="dlg" aria-labelledby="fsAddTitle">
+                <div class="dlg-head"><h3 class="dlg-title" id="fsAddTitle">Add Supply</h3></div>
+                <p class="sub" style="margin:0 0 12px">For a supply Bizbox carries that the list still calls "not in Bizbox". Most come in through Import; check the list below first.</p>
+                <div class="mb-row">
+                    <div class="search-wrap" style="flex:3 1 300px"><label for="fsa-desc">Supply, as Bizbox writes it</label><input id="fsa-desc" autocomplete="off" placeholder="e.g. GLOVES SURGICAL STERILE 7.5"></div>
+                    <div class="search-wrap" style="flex:1 1 140px"><label for="fsa-code">Bizbox code (optional)</label><input id="fsa-code" autocomplete="off" placeholder="MEDSUP-00000"></div>
+                </div>
+                <div class="similar" id="fsaSimilar"></div>
+                <div class="errbox" id="fsAddErr"></div>
+                <div class="dlg-actions">
+                    <button class="ghost" id="fsAddCancel" type="button">Cancel</button>
+                    <button id="fsAddSave" type="button">Add to RX Formulary</button>
+                </div>
+            </dialog>
+
             <dialog id="fmAddDlg" class="dlg dlg-wide" aria-labelledby="fmAddTitle">
                 <div class="dlg-head">
                     <h3 class="dlg-title" id="fmAddTitle">Add Medicine</h3>
@@ -109,16 +145,38 @@
         // ---------- list ----------
         async function load() {
             const p = new URLSearchParams({ q, bizbox, brand, limit: PAGE, offset });
-            const res = await api('/api/formulary?' + p);
+            const res = await api((kind === 'sup' ? '/api/formulary/supplies?' : '/api/formulary?') + p);
             if (!res.ok) { $('fmGrid').innerHTML = `<tbody><tr><td class="muted">${esc(res.data.message || 'Could not load')}</td></tr></tbody>`; return; }
             rows = res.data.rows; total = res.data.total;
             render();
         }
-        function render() {
-            $('fmCount').textContent = `${total} medicine${total === 1 ? '' : 's'}`;
+        function renderPager(noun) {
+            $('fmCount').textContent = `${total} ${noun}${total === 1 ? '' : 's'}`;
             $('fmPg').textContent = total ? `${offset + 1}–${Math.min(offset + PAGE, total)} of ${total}` : '';
             $('fmPrev').disabled = offset === 0;
             $('fmNext').disabled = offset + PAGE >= total;
+        }
+        const restoreRow = async (url) => {
+            const res = await api(url, { body: {} });
+            if (!res.ok) { await showDialog({ kind: 'danger', title: 'Could not restore', message: res.data.message || 'Try again.' }); return; }
+            load();
+        };
+        function renderSupplies() {
+            renderPager('supply');
+            $('fmCount').textContent = `${total} ${total === 1 ? 'supply' : 'supplies'}`;
+            $('fmGrid').innerHTML = `<thead><tr><th>Supply</th><th>Bizbox code</th><th>Bizbox</th><th></th></tr></thead>
+                <tbody>${rows.map((r, i) => `<tr>
+                    <td><b>${esc(r.description)}</b></td>
+                    <td class="muted mono">${esc(r.code || '')}</td>
+                    <td>${r.inBizbox ? '<span class="badge green">In Bizbox</span>' : '<span class="badge gray">Not marked</span>'}</td>
+                    <td class="row-actions">${r.deletedAt ? `<span class="badge red">removed</span> <button class="green sm" data-restore="${i}" type="button">Restore</button>` : `<button class="ghost sm" data-edit="${i}" type="button">Edit</button>`}</td>
+                </tr>`).join('')}${rows.length ? '' : '<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">Nothing matches.</td></tr>'}</tbody>`;
+            $('fmGrid').querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => openSupplyEdit(rows[Number(b.dataset.edit)]); });
+            $('fmGrid').querySelectorAll('[data-restore]').forEach((b) => { b.onclick = () => restoreRow(`/api/formulary/supplies/${rows[Number(b.dataset.restore)].id}/restore`); });
+        }
+        function render() {
+            if (kind === 'sup') { renderSupplies(); return; }
+            renderPager('medicine');
             $('fmGrid').innerHTML = `<thead><tr><th>Generic</th><th>Brand / Form / Strength</th><th>Brand</th><th>Form</th><th>Strength</th><th>Bizbox</th><th>Reg. No.</th><th></th></tr></thead>
                 <tbody>${rows.map((r, i) => `<tr>
                     <td><b>${esc(r.generic)}</b>${r.inPnf ? ' <span class="badge navy" title="Philippine National Formulary">PNF</span>' : ''}</td>
@@ -129,19 +187,26 @@
                     <td class="row-actions">${r.deletedAt ? `<span class="badge red">removed</span> <button class="green sm" data-restore="${i}" type="button">Restore</button>` : `<button class="ghost sm" data-edit="${i}" type="button">Edit</button>`}</td>
                 </tr>`).join('')}${rows.length ? '' : '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Nothing matches.</td></tr>'}</tbody>`;
             $('fmGrid').querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => openEdit(rows[Number(b.dataset.edit)]); });
-            $('fmGrid').querySelectorAll('[data-restore]').forEach((b) => {
-                b.onclick = async () => {
-                    const r = rows[Number(b.dataset.restore)];
-                    const res = await api(`/api/formulary/${r.id}/restore`, { body: {} });
-                    if (!res.ok) { await showDialog({ kind: 'danger', title: 'Could not restore', message: res.data.message || 'Try again.' }); return; }
-                    load();
-                };
-            });
+            $('fmGrid').querySelectorAll('[data-restore]').forEach((b) => { b.onclick = () => restoreRow(`/api/formulary/${rows[Number(b.dataset.restore)].id}/restore`); });
         }
         let qt = null;
         $('fmQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { q = $('fmQ').value.trim(); offset = 0; load(); }, 250); };
         $('fmChips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { bizbox = c.dataset.v; $('fmChips').querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c)); offset = 0; load(); }; });
         $('fmBrandChips').querySelectorAll('.chip').forEach((c) => { c.onclick = () => { brand = c.dataset.v; $('fmBrandChips').querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c)); offset = 0; load(); }; });
+        $('fmKind').querySelectorAll('.chip').forEach((c) => {
+            c.onclick = () => {
+                if (c.dataset.v === kind) return;
+                kind = c.dataset.v;
+                $('fmKind').querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c));
+                $('fmBrandChips').style.display = kind === 'sup' ? 'none' : '';
+                $('fmQ').placeholder = kind === 'sup' ? 'Search supply or code…' : 'Search generic, brand, form, strength…';
+                $('fmAdd').textContent = kind === 'sup' ? '+ Add Supply' : '+ Add Medicine';
+                $('fmIntro').textContent = kind === 'sup'
+                    ? 'Every medical supply this system knows — gloves, catheters, syringes. Marked ones are In Bizbox. Fix a spelling, merge a duplicate, or add one Bizbox carries that the list lacks.'
+                    : 'Every medicine this system knows. Marked ones are In Bizbox. Fix a spelling, merge a duplicate, or add one Bizbox carries that the list lacks.';
+                rows = []; offset = 0; load();
+            };
+        });
         $('fmPrev').onclick = () => { offset = Math.max(0, offset - PAGE); load(); };
         $('fmNext').onclick = () => { offset += PAGE; load(); };
 
@@ -183,6 +248,80 @@
             editDlg.close(); load();
         };
 
+        // ---------- supplies: edit / merge / add ----------
+        const fsEditDlg = $('fsEditDlg');
+        let supEditing = null;
+        const fsEditErr = (m) => { $('fsEditErr').textContent = m; $('fsEditErr').classList.add('show'); };
+        function openSupplyEdit(r) {
+            supEditing = r;
+            $('fs-desc').value = r.description || ''; $('fs-code').value = r.code || ''; $('fs-ihf').checked = !!r.inBizbox;
+            $('fsEditErr').classList.remove('show');
+            fsEditDlg.showModal();
+        }
+        $('fsEditCancel').onclick = () => fsEditDlg.close();
+        $('fsEditSave').onclick = async () => {
+            $('fsEditErr').classList.remove('show');
+            const body = { description: $('fs-desc').value, code: $('fs-code').value, inBizbox: $('fs-ihf').checked };
+            const btn = $('fsEditSave'); btn.disabled = true;
+            const res = await api(`/api/formulary/supplies/${supEditing.id}`, { body });
+            btn.disabled = false;
+            if (res.status === 409 && res.data.existing) {
+                const ex = res.data.existing;
+                const go = await showDialog({
+                    kind: 'warn', title: 'This supply already exists',
+                    message: `The list already has:\n${ex.description}${ex.code ? ` (${ex.code})` : ''}${ex.inBizbox ? ' — In Bizbox' : ''}\n\nMerge this one into it? The duplicate moves to Removed (restorable); the kept entry stays In Bizbox if either was.`,
+                    actions: [{ label: 'Merge into it', value: true, variant: 'primary' }, { label: 'Keep both', value: false, variant: 'ghost', cancel: true }],
+                });
+                if (!go) return;
+                const m = await api(`/api/formulary/supplies/${supEditing.id}/merge`, { body: { intoId: ex.id } });
+                if (!m.ok) { fsEditErr(m.data.message || 'Could not merge'); return; }
+                fsEditDlg.close(); load(); return;
+            }
+            if (!res.ok) { fsEditErr(res.data.message || 'Could not save'); return; }
+            fsEditDlg.close(); load();
+        };
+
+        const fsAddDlg = $('fsAddDlg');
+        const fsAddErr = (m) => { $('fsAddErr').textContent = m; $('fsAddErr').classList.add('show'); };
+        let fsSimT = null;
+        // what the list already has that reads like it — most "new" supplies are a spelling away
+        async function loadSimilarSupplies() {
+            const qq = $('fsa-desc').value.trim();
+            const host = $('fsaSimilar');
+            if (qq.length < 3) { host.innerHTML = ''; return; }
+            const first = qq.split(/\s+/)[0];
+            const res = await api('/api/formulary/supplies?' + new URLSearchParams({ q: first, limit: 12 }));
+            const list = res.ok ? res.data.rows || [] : [];
+            host.innerHTML = list.length
+                ? `<h5>Already in the list with "${esc(first)}"</h5>` + list.map((r) => `<div class="opt"><span>${esc(r.description)}${r.code ? ` <span class="muted mono">${esc(r.code)}</span>` : ''}</span><span class="badge ${r.inBizbox ? 'green' : 'amber'}">${r.inBizbox ? 'In Bizbox' : 'Not marked'}</span></div>`).join('')
+                : `<h5>Nothing in the list with "${esc(first)}"</h5>`;
+        }
+        $('fsa-desc').addEventListener('input', () => { clearTimeout(fsSimT); fsSimT = setTimeout(loadSimilarSupplies, 300); });
+        $('fsAddCancel').onclick = () => fsAddDlg.close();
+        $('fsAddSave').onclick = async () => {
+            $('fsAddErr').classList.remove('show');
+            const body = { description: $('fsa-desc').value.trim(), code: $('fsa-code').value.trim() };
+            if (!body.description) { fsAddErr('Enter the supply.'); $('fsa-desc').focus(); return; }
+            const btn = $('fsAddSave'); btn.disabled = true;
+            let res = await api('/api/formulary/supplies', { body });
+            if (res.ok && res.data.needsConfirm) {
+                const m = res.data.matches;
+                const lines = m.map((x) => `• ${x.label} — ${x.prescriptions} RX, ${x.reason === 'not_in_formulary' ? 'Not in Bizbox' : 'Out of stock'}, ${x.status.replace(/_/g, ' ')}`).join('\n');
+                const go = await showDialog({
+                    kind: 'warn', title: 'This supply is being tracked in Pharmacy Review',
+                    message: `${lines}\n\nMarking it In Bizbox will mark the Not-in-Bizbox row${m.length > 1 ? 's' : ''} as Added to Bizbox and resolve ${m.length > 1 ? 'them' : 'it'}. Continue?`,
+                    actions: [{ label: 'Yes, add and resolve', value: true, variant: 'primary' }, { label: 'Cancel', value: false, variant: 'ghost', cancel: true }],
+                });
+                if (!go) { btn.disabled = false; return; }
+                res = await api('/api/formulary/supplies', { body: { ...body, confirm: true } });
+            }
+            btn.disabled = false;
+            if (!res.ok) { fsAddErr(res.data.message || 'Could not add the supply'); return; }
+            fsAddDlg.close();
+            await showDialog({ kind: 'ok', title: 'Added', message: `${res.data.label} is in the RX Formulary and marked In Bizbox${res.data.created ? ' (new entry)' : ''}.` + (res.data.resolved ? `\n${res.data.resolved} review row${res.data.resolved > 1 ? 's' : ''} resolved.` : '') });
+            load();
+        };
+
         // ---------- add (same rules as before, now here) ----------
         const addDlg = $('fmAddDlg');
         $('faWidget').innerHTML = MedWidget.html('fa-', 'fasg-', { vol: true });
@@ -205,7 +344,13 @@
                 };
             });
         }
-        $('fmAdd').onclick = () => { faWidget.reset(); $('fa-reg').value = ''; $('fmAddErr').classList.remove('show'); $('faSimilar').innerHTML = ''; addDlg.showModal(); faWidget.focus('generic'); };
+        $('fmAdd').onclick = () => {
+            if (kind === 'sup') {
+                $('fsa-desc').value = ''; $('fsa-code').value = ''; $('fsaSimilar').innerHTML = ''; $('fsAddErr').classList.remove('show');
+                fsAddDlg.showModal(); $('fsa-desc').focus();
+                return;
+            }
+            faWidget.reset(); $('fa-reg').value = ''; $('fmAddErr').classList.remove('show'); $('faSimilar').innerHTML = ''; addDlg.showModal(); faWidget.focus('generic'); };
         let simT = null;
         ['fa-generic', 'fa-brand', 'fa-combo'].forEach((id) => {
             $(id).addEventListener('input', () => {

@@ -68,4 +68,63 @@ const merge = async (fromId, intoId, actor) => {
 const add = (body, actor) => pharmacy.addCatalogProduct(body, actor);
 const similar = (q) => pharmacy.similarProducts(q);
 
-module.exports = { search, get, update, merge, restore, add, similar };
+// ----- medical supplies: the same page, a flat list -----
+const supplySearch = ({ q, bizbox, limit, offset }) => db.listSuppliesPage({ q, bizbox, limit, offset });
+
+const supplyGet = async (id) => {
+    const row = await db.getSupply(Number(id));
+    if (!row) throw httpError(404, 'Supply not found');
+    return row;
+};
+
+const supplyUpdate = async (id, body, actor) => {
+    const before = await supplyGet(id);
+    const patch = {
+        code: clean(body.code) || null, description: clean(body.description).slice(0, 200),
+        ihf: body.inBizbox === undefined ? before.inBizbox : !!body.inBizbox,
+    };
+    if (!patch.description) throw httpError(400, 'Enter the supply');
+    const { conflict } = await db.updateSupply(before.id, patch);
+    if (conflict) {
+        const err = httpError(409, 'A supply with this code or wording already exists.');
+        err.existing = await db.getSupply(conflict);
+        throw err;
+    }
+    await db.addAudit({
+        action: 'catalog_edit', drug: `Supply — ${before.description}`, reason: null,
+        status: `-> ${patch.description}${patch.code ? ` (${patch.code})` : ''}${patch.ihf !== before.inBizbox ? (patch.ihf ? ' (marked In Bizbox)' : ' (unmarked)') : ''}`,
+        actor: actor.name, authorizedBy: actor.name,
+    });
+    return db.getSupply(before.id);
+};
+
+const supplyMerge = async (fromId, intoId, actor) => {
+    fromId = Number(fromId); intoId = Number(intoId);
+    if (!fromId || !intoId || fromId === intoId) throw httpError(400, 'Pick two different entries');
+    const from = await db.getSupply(fromId), into = await db.getSupply(intoId);
+    if (!from || !into) throw httpError(404, 'Supply not found');
+    await db.mergeSupplies(fromId, intoId);
+    await db.addAudit({
+        action: 'catalog_merge', drug: `Supply — ${from.description}`, reason: null,
+        status: `merged into ${into.description}`, actor: actor.name, authorizedBy: actor.name,
+    });
+    return db.getSupply(intoId);
+};
+
+const supplyRestore = async (id, actor) => {
+    const row = await supplyGet(id);
+    if (row.deletedAt == null) return row;
+    // a live row with the same wording would make two of one supply
+    const live = await db.findSupply({ description: row.description, code: row.code });
+    if (live && live.id !== row.id) throw httpError(409, `"${live.description}" is already in the list. Edit that one instead.`);
+    await db.restoreSupply(row.id);
+    await db.addAudit({ action: 'catalog_restore', drug: `Supply — ${row.description}`, reason: null, status: 'restored', actor: actor.name, authorizedBy: actor.name });
+    return db.getSupply(row.id);
+};
+
+const supplyAdd = (body, actor) => pharmacy.addCatalogSupply(body, actor);
+
+module.exports = {
+    search, get, update, merge, restore, add, similar,
+    supplySearch, supplyGet, supplyUpdate, supplyMerge, supplyRestore, supplyAdd,
+};

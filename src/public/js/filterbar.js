@@ -11,8 +11,11 @@
  *       beside "Add filter" (e.g. "Branded only"); a click adds the chip, a
  *       second click removes it. Presets sharing a group switch each other off
  *       ("Branded only" / "No brand only"), since a row can only be one.
- *     fields: [{ key, label, type, get, options }]
+ *     fields: [{ key, label, type, get, options, only }]
  *       type    'enum' | 'text' | 'number' | 'date'
+ *       only    optional row -> bool: the rows this property exists for. A
+ *               filter on it drops every other row — Brand is a medicine's,
+ *               so "No brand only" must not sweep in the supplies
  *       get     row -> value (a scalar, or an array for "any of these")
  *       options enum only: [{ value, label }] or a function returning that,
  *               called when the popover opens (departments come from the data)
@@ -54,6 +57,7 @@
         function matches(row, f) {
             const def = byKey[f.key];
             if (!def) return true;
+            if (def.only && !def.only(row)) return false;
             const v = def.get(row);
             if (f.op === 'empty') return isBlank(v);
             if (f.op === 'not_empty') return !isBlank(v);

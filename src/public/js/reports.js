@@ -42,10 +42,14 @@
             { label: 'Branded only', filter: { key: 'brand', op: 'not_empty' }, group: 'brand' },
             { label: 'No brand only', filter: { key: 'brand', op: 'empty' }, group: 'brand' },
             { label: 'No remarks', filter: { key: 'remark', op: 'empty' } },
+            { label: 'Medicines only', filter: { key: 'kind', op: 'is', value: 'medicine' }, group: 'kind' },
+            { label: 'Supplies only', filter: { key: 'kind', op: 'is', value: 'supply' }, group: 'kind' },
             { label: 'Still open', filter: { key: 'resolved', op: 'is', value: 'no' } },
         ],
         fields: [
-            { key: 'brand', label: 'Brand', type: 'text', get: (r) => r.brand },
+            { key: 'kind', label: 'Medicine or supply', type: 'enum', get: (r) => r.kind || 'medicine', options: [
+                { value: 'medicine', label: 'Medicine' }, { value: 'supply', label: 'Supply' }] },
+            { key: 'brand', label: 'Brand', type: 'text', get: (r) => r.brand, only: (r) => r.kind !== 'supply' },
             { key: 'reason', label: 'Bizbox status', type: 'enum', get: (r) => r.reason, options: [
                 { value: 'not_in_formulary', label: 'Not in Bizbox' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'normal', label: 'Prescribed but In Bizbox' }] },
             { key: 'status', label: 'Review status', type: 'enum', get: (r) => r.status, options: [
@@ -120,7 +124,7 @@
             tb.className = 'drug-group';
             tb.innerHTML = `
                 <tr class="clickable drug-row">
-                    <td><span class="caret">▸</span> ${escapeHtml(r.generic)}</td>
+                    <td><span class="caret">▸</span> ${escapeHtml(r.generic)}${kindTag(r)}</td>
                     <td>${escapeHtml(r.description || '—')}</td>
                     <td data-col="reason">${reasonText(r.reason)}</td>
                     <td data-col="rx">${r.prescriptions}</td>
@@ -153,13 +157,13 @@
             showDialog({ kind: 'warn', title: 'Nothing to export', message: 'Generate a report first, then export it.' });
             return;
         }
-        const head = ['Generic', 'Brand/Form/Strength', 'Reason', '# RX', '# Prescribed', 'Departments (# prescribed)', 'Doctors (# prescribed)', 'Status',
+        const head = ['Generic', 'Brand/Form/Strength', 'Type', 'Bizbox code', 'Reason', '# RX', '# Prescribed', 'Departments (# prescribed)', 'Doctors (# prescribed)', 'Status',
             'Latest remark', 'Remark note', 'Remark by', 'Remark at', 'Remark history'];
         const lines = [head.join(',')];
         rows.forEach((r) => {
             const lr = r.lastRemark;
             lines.push([
-                csvCell(r.generic), csvCell(r.description || ''), reasonText(r.reason), r.prescriptions, r.volume,
+                csvCell(r.generic), csvCell(r.description || ''), r.kind === 'supply' ? 'Supply' : 'Medicine', csvCell(r.supplyCode || ''), reasonText(r.reason), r.prescriptions, r.volume,
                 csvCell(r.byDepartment.map((x) => `${x.name}:${x.volume}`).join('; ')),
                 csvCell(r.byDoctor.map((x) => `${drName(x.name)}:${x.volume}`).join('; ')),
                 csvCell(statusText(r)),

@@ -90,6 +90,22 @@ async function main() {
         await client.query('ALTER TABLE strengths ADD COLUMN IF NOT EXISTS deleted_at BIGINT');
         await client.query('ALTER TABLE strengths ADD COLUMN IF NOT EXISTS merged_into INTEGER');
 
+        // 6. medical supplies (gloves, catheters, sutures...): a flat list, not
+        //    the generic/brand/form/strength tree. code is Bizbox's item code
+        //    (MEDSUP-00133) — NULL for one a nurse typed or a person added by hand.
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS supplies (
+              id SERIAL PRIMARY KEY,
+              code TEXT UNIQUE,
+              description TEXT NOT NULL,
+              ihf BOOLEAN NOT NULL DEFAULT false,
+              bizbox_seen_at BIGINT,
+              deleted_at BIGINT,
+              merged_into INTEGER
+            )
+        `);
+        await client.query('CREATE INDEX IF NOT EXISTS idx_supplies_description ON supplies (lower(trim(description)))');
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS catalog_import_exclusions (
               description_key TEXT PRIMARY KEY,
