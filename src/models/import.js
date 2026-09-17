@@ -7,8 +7,11 @@
 //   uploaded        the sheet is parsed and stored; waiting for the column choice
 //   analyzing       classifying rows against the catalog, in batches (progress)
 //   awaiting_review the reviewer edits, accepts, excludes; decisions saved as they go
+//   backing_up      Apply pressed: a full database dump is being taken
+//                   (IT page -> Backups, "-pre-import"). If it fails the job
+//                   goes back to awaiting_review and nothing is applied.
 //   applying        writing the catalog, in batches (progress)
-//   done | cancelled | failed
+//   done | cancelled | failed | rolled_back
 //
 // Nothing is removed or unflagged, ever. A Bizbox product missing from the
 // file is reported in the result and left alone.
@@ -29,6 +32,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
 const BATCH = 100;
 const STALE_MS = 2 * 60 * 1000;     // a job with no heartbeat this long lost its worker
+const BACKUP_STALE_MS = 12 * 60 * 1000;   // pg_dump may run up to 10 minutes (models/it.js)
 
 // ---- row categories (what the reviewer sees as tabs) ----
 //   unchanged  already in Bizbox: seen before, or the exact product is flagged
@@ -356,6 +360,11 @@ const get = async (id, { withRows = false } = {}) => {
     const job = await db.getImport(id, { withRows });
     if (!job) throw httpError(404, 'Import not found');
     // a worker that died mid-job leaves the status hanging; the page must not spin forever
+    // died while backing up: nothing was applied yet, so the review is simply open again
+    if (job.status === 'backing_up' && Date.now() - (job.summary.heartbeat || job.startedAt) > BACKUP_STALE_MS) {
+        await db.updateImport(id, { status: 'awaiting_review' });
+        job.status = 'awaiting_review';
+    }
     if ((job.status === 'analyzing' || job.status === 'applying') && Date.now() - (job.summary.heartbeat || job.startedAt) > STALE_MS) {
         await db.updateImport(id, { status: 'failed', finishedAt: Date.now(), summary: { ...job.summary, error: 'The server stopped while working on this import. Upload the file again.' } });
         job.status = 'failed'; job.summary.error = 'The server stopped while working on this import. Upload the file again.';
@@ -425,7 +434,20 @@ const apply = async (id, actor) => {
     const left = remainingToReview(items);
     if (left) throw httpError(400, `${left} row${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} a decision under Needs attention`);
     if (!items.some((r) => r.generic && r.action !== 'skip' && r.action !== 'review' && !r.excluded) && !items.some((r) => r.category === 'unchanged')) throw httpError(400, 'Nothing to apply');
-    await db.updateImport(id, { status: 'applying', processed: 0, total: items.length, summary: { ...job.summary, heartbeat: Date.now(), appliedBy: actor && actor.name } });
+
+    // the whole database, before a single row changes. Required: an import
+    // that cannot be walked back does not run. The claim makes a double
+    // click (possibly landing on two workers) back up and apply once.
+    if (!(await db.claimImport(id, 'awaiting_review', 'backing_up'))) throw httpError(409, 'This import is already being applied');
+    await db.updateImport(id, { summary: { ...job.summary, heartbeat: Date.now() } });
+    let backup;
+    try {
+        backup = await require('./it').preImportDump();
+    } catch (e) {
+        await db.updateImport(id, { status: 'awaiting_review' });
+        throw httpError(500, `Nothing was applied: the backup taken before every import failed. ${String(e.message || '').replace(/^Backup failed:\s*/, '')}`);
+    }
+    await db.updateImport(id, { status: 'applying', processed: 0, total: items.length, summary: { ...job.summary, heartbeat: Date.now(), appliedBy: actor && actor.name, backupFile: backup.file } });
     const run = job.summary.kind === 'supply' ? runApplySupplies : runApply;
     setImmediate(() => run(id, items, actor).catch((e) => fail(id, e)));
     return { id };

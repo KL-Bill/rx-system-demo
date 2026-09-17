@@ -866,6 +866,12 @@ const getImport = async (id, { withRows = true } = {}) => {
     return rows[0] ? mapImport(rows[0]) : null;
 };
 // patch: { status, total, processed, summary, rows, finishedAt } — only the keys given
+// Move a job from one status to another only if it is still in the first —
+// one statement, so of two workers answering a double-clicked Apply exactly
+// one wins. -> true when this caller got it.
+const claimImport = async (id, from, to) => (await pool.query(
+    'UPDATE catalog_imports SET status = $3 WHERE id = $1 AND status = $2', [id, from, to])).rowCount === 1;
+
 const updateImport = async (id, patch) => {
     const sets = [], params = [id];
     const put = (col, v) => { params.push(v); sets.push(`${col} = $${params.length}`); };
@@ -1022,7 +1028,7 @@ module.exports = {
     getStatus, setStatus,
     addRemark, getRemarks, getAllRemarks, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
-    searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
+    claimImport, searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,
     exclusionKey, getExclusions, addExclusion, removeExclusion, productsNotSeenSince,
     addAudit, getAudit,

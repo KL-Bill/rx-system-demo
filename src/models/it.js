@@ -89,8 +89,9 @@ const listBackups = async () => {
 // gates, because this endpoint hands out the entire database: the name must
 // match the strict pattern backup-db.ps1 generates, AND it must already be a
 // row in the backups table. A traversal attempt fails both.
-// the -pre-restore variant is what a restore writes as its safety dump
-const BACKUP_FILE_RE = /^rx-system-\d{8}-\d{6}(-pre-restore)?\.sql$/;
+// the -pre-restore variant is what a restore writes as its safety dump, the
+// -pre-import one what a Bizbox import writes before it touches the catalog
+const BACKUP_FILE_RE = /^rx-system-\d{8}-\d{6}(-pre-restore|-pre-import)?\.sql$/;
 
 const backupPath = async (file) => {
     if (!BACKUP_FILE_RE.test(file || '')) throw httpError(400, 'Invalid backup filename');
@@ -173,6 +174,10 @@ const safetyDump = () => writeDump(`rx-system-${stamp()}-pre-restore.sql`);
 // container rebuilds — the volume is a hostPath — but not the loss of the
 // podman machine itself. Download it from this page for an off-box copy.
 const createBackup = async () => writeDump(`rx-system-${stamp()}.sql`);
+
+// Taken by every Bizbox import right before Apply writes anything, so an
+// import that went wrong is one Restore away (IT page -> Backups).
+const preImportDump = () => writeDump(`rx-system-${stamp()}-pre-import.sql`);
 
 const atFromName = (file) => {
     const m = file.match(/^rx-system-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
@@ -373,7 +378,7 @@ const updateStation = async (id, { name, department, fixPast }) => {
 
 module.exports = {
     listLogs, listAudit, listUsers, createUser, resetPassword, setActive,
-    listBackups, backupPath, createBackup, restoreBackup, health,
+    listBackups, backupPath, createBackup, preImportDump, restoreBackup, health,
     listPrescriptions, deletePrescriptions, restorePrescriptions,
     listDoctors, createDoctor, updateDoctor, deleteDoctor, restoreDoctor, listStations, createStation, updateStation,
 };

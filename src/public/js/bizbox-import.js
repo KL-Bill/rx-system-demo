@@ -31,8 +31,8 @@
         ['unchanged', 'Already in RX Formulary', 'Already in the RX Formulary and marked In Bizbox. Nothing changes except the Bizbox wording.', ''],
     ];
     const DONE_LABEL = { decide: 'Decided', new: 'Added to RX Formulary', marked: 'Marked In Bizbox', unchanged: 'Already in RX Formulary' };
-    const STATUS_LABEL = { uploaded: 'Waiting for columns', analyzing: 'Analyzing', awaiting_review: 'Awaiting review', applying: 'Applying', done: 'Done', cancelled: 'Cancelled', failed: 'Failed' };
-    const STATUS_TONE = { done: 'green', awaiting_review: 'amber', analyzing: 'navy', applying: 'navy', failed: 'red', cancelled: 'gray', uploaded: 'gray' };
+    const STATUS_LABEL = { uploaded: 'Waiting for columns', analyzing: 'Analyzing', awaiting_review: 'Awaiting review', backing_up: 'Backing up', applying: 'Applying', done: 'Done', cancelled: 'Cancelled', failed: 'Failed', rolled_back: 'Rolled back' };
+    const STATUS_TONE = { done: 'green', awaiting_review: 'amber', analyzing: 'navy', backing_up: 'navy', applying: 'navy', failed: 'red', cancelled: 'gray', uploaded: 'gray', rolled_back: 'gray' };
     const WARN_TEXT = {
         'no generic': 'No generic given — type one, or skip',
         'no form': 'Could not tell the form',
@@ -187,7 +187,7 @@
         }
         function route() {
             if (job.status === 'uploaded') { renderColumns({ id: job.id, headers: job.summary.headers || [], guess: job.summary.guess || { genericCol: 0, descCol: 1 }, rowCount: job.summary.rowCount || 0, sample: [] }); return; }
-            if (job.status === 'analyzing' || job.status === 'applying') { renderProgress(); startPoll(); return; }
+            if (job.status === 'analyzing' || job.status === 'applying' || job.status === 'backing_up') { renderProgress(); startPoll(); return; }
             if (job.status === 'awaiting_review') { loadRows().then(() => { group = firstGroupWithRows(); renderReview(); }); return; }
             if (job.status === 'done') { renderResult(); return; }
             renderEnded();
@@ -227,7 +227,7 @@
                 main.querySelector('#impCancel').onclick = async () => { await api(`/api/import/${job.id}/cancel`, { body: {} }); stopPoll(); loadHistory(); renderUpload(); };
                 if (!analyzing) main.querySelector('#impCancel').style.display = 'none';
             }
-            main.querySelector('#impPhase').textContent = analyzing ? 'Analyzing the file…' : 'Applying to the RX Formulary…';
+            main.querySelector('#impPhase').textContent = analyzing ? 'Analyzing the file…' : job.status === 'backing_up' ? 'Backing up the database…' : 'Applying to the RX Formulary…';
             main.querySelector('#impPhaseSub').textContent = analyzing ? 'Each line is compared with the RX Formulary. Nothing is saved yet.' : `Adding and marking ${nouns()[1]}. Please keep this page open.`;
             main.querySelector('#impBar').style.width = pct + '%';
             main.querySelector('#impCount').textContent = `${analyzing ? 'Checked' : 'Applied'} ${job.processed} of ${job.total} (${pct}%)`;
@@ -404,12 +404,15 @@
             const c = countsNow();
             const go = await showDialog({
                 kind: 'warn', title: 'Apply this import to the RX Formulary?',
-                message: `${c.new} ${plural(c.new)} will be added to the RX Formulary, ${c.marked} marked In Bizbox, ${c.unchanged} already in the RX Formulary (Bizbox wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. This cannot be undone from here.`,
+                message: `${c.new} ${plural(c.new)} will be added to the RX Formulary, ${c.marked} marked In Bizbox, ${c.unchanged} already in the RX Formulary (Bizbox wording refreshed), ${c.skipped + c.excluded} skipped.\n\nNothing is removed. A backup of the whole database is taken first, so IT can restore it if this import goes wrong.`,
                 actions: [{ label: 'Apply import', value: true, variant: 'primary' }, { label: 'Not yet', value: false, variant: 'ghost', cancel: true }],
             });
             if (!go) return;
+            // the backup runs before the reply comes back — say so, and lock the button
+            const btn = main.querySelector('#impApply');
+            if (btn) { btn.disabled = true; btn.textContent = 'Backing up the database…'; }
             const res = await api(`/api/import/${job.id}/apply`, { body: {} });
-            if (!res.ok) { showDialog({ kind: 'danger', title: 'Cannot apply', message: res.data.message || 'Try again.' }); return; }
+            if (!res.ok) { refreshApply(); showDialog({ kind: 'danger', title: 'Cannot apply', message: res.data.message || 'Try again.' }); return; }
             open(job.id);
         }
 
@@ -425,6 +428,7 @@
                         ${[['created', 'Added to RX Formulary', `New ${nouns()[1]}, now marked In Bizbox`], ['linked', 'Marked In Bizbox', 'Already in the RX Formulary, now marked'], ['unchanged', 'Already in RX Formulary', 'No change needed'], ['skipped', 'Skipped', `By you, or not a ${nouns()[0]}`]].map(([k, l, d]) => `<div class="imp-sum"><div class="n">${k === 'linked' ? (r.linked || 0) + (r.flagged || 0) : k === 'skipped' ? (r.skipped || 0) + (r.excluded || 0) : (r[k] || 0)}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join('')}
                     </div>
                     <div class="okbox" style="margin-top:12px">The RX Formulary now shows these ${nouns()[1]} as In Bizbox. Anything the file did not mention was left exactly as it was.</div>
+                    ${job.summary.backupFile ? `<div class="infobox" style="margin-top:8px">Backup taken just before applying: <b class="mono">${esc(job.summary.backupFile)}</b>. To undo this import, IT restores it from <b>IT → Backups</b> — which also undoes anything written after it.</div>` : ''}
                     ${missing.length ? `<details class="imp-missing"><summary><b>${job.summary.missingCount}</b> ${plural(job.summary.missingCount)} marked In Bizbox in the RX Formulary but not in this file — for information only, nothing was changed</summary>
                         <div class="tbl-wrap"><table class="dense"><thead><tr>${isSup() ? '<th>Supply</th><th>Code</th>' : '<th>Generic</th><th>Brand / Form / Strength</th>'}<th>Last seen in a file</th></tr></thead><tbody>${missing.map((m) => `<tr><td>${esc(m.generic)}</td><td>${esc(m.description)}</td><td class="muted">${m.seenAt ? fmtDT(m.seenAt) : 'never'}</td></tr>`).join('')}</tbody></table></div>
                         ${job.summary.missingCount > missing.length ? `<div class="muted" style="font-size:12px;margin-top:6px">First ${missing.length} shown.</div>` : ''}</details>` : ''}
@@ -451,7 +455,7 @@
         (async () => {
             await loadHistory();
             const res = await api('/api/import');
-            const openJob = res.ok && (res.data.imports || []).find((j) => ['analyzing', 'applying', 'awaiting_review'].includes(j.status));
+            const openJob = res.ok && (res.data.imports || []).find((j) => ['analyzing', 'backing_up', 'applying', 'awaiting_review'].includes(j.status));
             if (openJob) open(openJob.id); else renderUpload();
         })();
 

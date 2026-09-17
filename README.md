@@ -107,7 +107,15 @@ has two tabs:
   saved as you go, so you can leave and come back, or discard the file.
 
 The import never removes or unmarks anything. Products marked In Bizbox that
-the file does not list are reported at the end, for information only. The job
+the file does not list are reported at the end, for information only.
+
+**Every Apply takes a full database backup first** (`rx-system-<time>-pre-import.sql`,
+listed on IT → Backups like any other). If the backup fails, nothing is
+applied and the review stays open. The result screen names the file; undoing
+an import means restoring it from IT → Backups — which, like any restore, also
+undoes whatever was written after it. Like the IT page's "Back up now", this
+dump lives in the pod's backup volume only (not copied to `C:\rx-system\backups`)
+and is pruned after 7 days with the rest. The job
 lives in the database rather than in memory, because the app runs several
 workers — which is also why progress survives a refresh.
 
