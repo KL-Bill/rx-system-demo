@@ -624,8 +624,12 @@ npm run watch                 # nodemon
 ## Not yet done
 
 - CI/CD (auto-deploy on git push) — deliberately out of scope for now, revisit later.
-- The staff manuals in `docs/*.docx` (Nurse, Pharmacy, IT, Overview,
-  Troubleshooting, Codebase) still describe the pre-Bizbox app: the old
-  "Formulary" wording, the four-box medicine picker, and no Medicines page,
-  remarks, filter bar, print preview or soft delete. Regenerate them with the
-  scripts in `docs/screenshot-tools/` before handing them to staff.
+- Two of the six manuals in `docs/*.docx` are still pre-Bizbox: **System
+  Overview and Reference** and **Codebase Documentation** (the latter renders
+  `docs/CODEBASE.md`, so edit the Markdown first). Regenerate them with
+  `make-overview.js` / `make-codebase.js` in `docs/screenshot-tools/`.
+  The **Nurse**, **Pharmacy**, **IT** and **Troubleshooting** manuals were
+  rebuilt on 2026-09-17 against the current screens (`cap-nurse26.js`,
+  `cap-pharmacy26.js`, `cap-it26.js` take the screenshots; the `make-*.js`
+  scripts build the documents). Note `docs/` is gitignored — the manuals live
+  on the server machine only.

@@ -24,7 +24,15 @@
     let tab = 'review', q = '';
     let problems = [], anomalies = [], current = null;
     const selected = new Map();   // key -> row
-    const isReviewed = (r) => !r.resolved && ((r.remarks && r.remarks.length > 0) || r.status === 'under_therapeutics');
+    // A reopened row goes back to To review: its remarks and its old status
+    // belong to the round that was closed, not to the demand that came since.
+    // Only what was said AFTER it came back counts as "somebody is on it".
+    const isReviewed = (r) => {
+        if (r.resolved) return false;
+        const since = r.reopened ? (r.reopenedSince || 0) : 0;
+        const spoken = (r.remarks || []).some((x) => x.at > since);
+        return spoken || (r.status === 'under_therapeutics' && !r.reopened);
+    };
 
     // remark presets — the server's list is the truth, this is the fallback
     // for the moment before it answers
@@ -38,7 +46,12 @@
     const reasonBadge = (r) => r === 'not_in_formulary' ? '<span class="badge navy">Not in Bizbox</span>'
         : r === 'out_of_stock' ? '<span class="badge amber">Out of stock</span>'
         : '<span class="badge red">Prescribed but In Bizbox</span>';
+    // what a row that came back says, on the row and in the drawer
+    const reopenBadge = (r) => (r.reopened
+        ? `<span class="badge red" title="Prescribed again after it was ${r.reopenedFrom === 'restocked' ? 'marked Restocked' : 'added to Bizbox'} on ${fmtDT(r.statusDate)}">Prescribed again${r.sinceCount > 1 ? ` ×${r.sinceCount}` : ''}</span>`
+        : '');
     const statusBadge = (r) => {
+        if (r.reopened) return `${reopenBadge(r)} <span class="muted">was ${r.reopenedFrom === 'restocked' ? 'Restocked' : 'Added to Bizbox'} ${fmtDT(r.statusDate)}</span>`;
         if (r.status === 'added_to_formulary') return `<span class="badge green">Added to Bizbox</span> <span class="muted">${fmtDT(r.statusDate)}</span>`;
         if (r.status === 'restocked') return `<span class="badge green">Restocked</span> <span class="muted">${fmtDT(r.statusDate)}</span>`;
         if (r.status === 'under_therapeutics') return '<span class="badge amber">Under Therapeutics</span>';
@@ -277,8 +290,14 @@
 
     const kv = (k, v) => `<div><div class="k">${k}</div><div class="v">${escapeHtml(v || '—')}</div></div>`;
 
-    function openDetail(row, tr) {
+    async function openDetail(row, tr) {
         current = { row };
+        // the table rows carry no timeline (one query per row would be silly);
+        // fetch the full detail for the one being opened
+        if (!row.timeline) {
+            const res = await api(`/api/pharmacy/detail?key=${encodeURIComponent(row.key)}&reason=${encodeURIComponent(row.reason)}`);
+            if (res.ok && res.data.detail) Object.assign(row, res.data.detail);
+        }
         document.querySelectorAll('#tbl tr.selected').forEach((x) => x.classList.remove('selected'));
         if (tr) tr.classList.add('selected');
 
@@ -286,6 +305,7 @@
         $('dSubtitle').textContent = (row.kind === 'supply' ? ['Supply', row.supplyCode] : [row.description, row.registrationNumber ? 'Reg. No. ' + row.registrationNumber : ''])
             .filter(Boolean).join(' · ');
         $('dBadges').innerHTML = reasonBadge(row.reason) + ' ' + statusBadge(row);
+        renderTimeline(row);
 
         $('d-rx').textContent = row.prescriptions;
         $('d-vol').textContent = row.volume;
@@ -317,6 +337,23 @@
 
         renderRemarks(row);
         showDetail(true);
+    }
+
+    // the dated story of one row: prescriptions, remarks and status moves
+    const TL_ICON = { prescribed: '℞', remark: '✎', status: '●' };
+    function renderTimeline(row) {
+        const host = $('dTimeline');
+        if (!host) return;
+        const items = row.timeline || [];
+        if (!items.length) { host.innerHTML = '<div class="muted" style="font-size:12.5px">Nothing recorded yet.</div>'; return; }
+        const cut = row.reopened ? row.statusDate : null;
+        host.innerHTML = items.slice(0, 60).map((t) => `
+            <div class="tl ${t.type}${cut && t.at > cut ? ' after' : ''}">
+                <span class="tl-dot">${TL_ICON[t.type] || '•'}</span>
+                <span class="tl-when">${fmtDT(t.at)}</span>
+                <span class="tl-what">${escapeHtml(t.text)}${t.detail ? ` <span class="muted">${escapeHtml(t.detail)}</span>` : ''}</span>
+            </div>`).join('')
+            + (items.length > 60 ? `<div class="muted" style="font-size:12px;margin-top:6px">Showing the latest 60 of ${items.length}.</div>` : '');
     }
 
     const detailError = (msg) => { $('dErr').textContent = msg; $('dErr').classList.add('show'); };

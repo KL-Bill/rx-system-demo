@@ -14,6 +14,8 @@
 //   3. adds catalog_imports + catalog_import_exclusions — the Bizbox import
 //      job record (progress, review decisions) and the "skip this next time"
 //      list (NITROGEN USE, MEDEXPRESS PAYABLE...)
+//   4. adds users.is_master, the soft-delete columns, the supplies table, and
+//      review_status_events — see the numbered steps in the code below
 
 const { pool } = require('../src/_db/store');
 
@@ -106,6 +108,31 @@ async function main() {
         `);
         await client.query('CREATE INDEX IF NOT EXISTS idx_supplies_description ON supplies (lower(trim(description)))');
 
+        // 7. review_status_events: the history behind review_status, so a row
+        //    that was resolved and is being prescribed again can show both.
+        //    Seeded with one event per status that already exists.
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS review_status_events (
+              id TEXT PRIMARY KEY,
+              reason TEXT NOT NULL,
+              drug_key TEXT NOT NULL,
+              status TEXT NOT NULL,
+              actor TEXT,
+              authorized_by TEXT,
+              at BIGINT NOT NULL
+            )
+        `);
+        await client.query('CREATE INDEX IF NOT EXISTS idx_review_status_events_drug ON review_status_events (reason, drug_key, at DESC)');
+        const seeded = await client.query(`
+            INSERT INTO review_status_events (id, reason, drug_key, status, actor, authorized_by, at)
+            SELECT 'rse-' || substr(md5(random()::text || s.reason || s.drug_key), 1, 8),
+                   s.reason, s.drug_key, s.status, s.actor, s.authorized_by, s.status_date
+              FROM review_status s
+             WHERE NOT EXISTS (
+                   SELECT 1 FROM review_status_events e
+                    WHERE e.reason = s.reason AND e.drug_key = s.drug_key AND e.at = s.status_date)
+        `);
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS catalog_import_exclusions (
               description_key TEXT PRIMARY KEY,
@@ -116,7 +143,7 @@ async function main() {
         `);
 
         await client.query('COMMIT');
-        console.log(`Migration done. Descriptions stitched for ${filled.rowCount} existing product(s).`);
+        console.log(`Migration done. Descriptions stitched for ${filled.rowCount} existing product(s); ${seeded.rowCount} status event(s) seeded.`);
     } catch (e) {
         await client.query('ROLLBACK');
         throw e;

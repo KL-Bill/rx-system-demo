@@ -546,7 +546,21 @@ const setStatus = async (reason, key, rec) => {
             status = EXCLUDED.status, status_date = EXCLUDED.status_date,
             actor = EXCLUDED.actor, authorized_by = EXCLUDED.authorized_by
     `, [reason, key, rec.status, rec.statusDate || Date.now(), rec.actor || null, rec.authorizedBy || null]);
+    // and the history: review_status says where it stands now, this says how it
+    // got there — including the last time it was resolved before coming back
+    await pool.query(
+        'INSERT INTO review_status_events (id, reason, drug_key, status, actor, authorized_by, at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [newId('rse'), reason, key, rec.status, rec.actor || null, rec.authorizedBy || null, rec.statusDate || Date.now()]);
     return getStatus(reason, key);
+};
+
+// every move this drug has made, oldest first
+const getStatusEvents = async (reason, drugKey) => {
+    const { rows } = await pool.query(
+        `SELECT id, status, actor, authorized_by AS "authorizedBy", at
+           FROM review_status_events WHERE reason = $1 AND drug_key = $2 ORDER BY at`,
+        [reason, drugKey]);
+    return rows.map((r) => ({ ...r, at: toNum(r.at) }));
 };
 
 // ---------- review remarks ----------
@@ -1026,7 +1040,7 @@ module.exports = {
     addPrescription, getPrescriptions, getPrescriptionsByIds,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
-    addRemark, getRemarks, getAllRemarks, findSimilarProducts,
+    addRemark, getRemarks, getAllRemarks, getStatusEvents, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
     claimImport, searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,

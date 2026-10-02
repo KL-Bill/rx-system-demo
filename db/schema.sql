@@ -150,6 +150,24 @@ CREATE TABLE review_status (
   PRIMARY KEY (reason, drug_key)
 );
 
+-- ---------- review status history ----------
+-- review_status holds only where a drug stands NOW. This table keeps every
+-- move: prescribed-because-missing, sent to Therapeutics, restocked, and the
+-- next time it goes out of stock again. One row per change, never updated —
+-- it is what the detail panel's timeline reads.
+
+CREATE TABLE review_status_events (
+  id TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  drug_key TEXT NOT NULL,
+  status TEXT NOT NULL,
+  actor TEXT,
+  authorized_by TEXT,
+  at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_review_status_events_drug ON review_status_events (reason, drug_key, at DESC);
+
 -- ---------- review remarks ----------
 -- the pharmacy's explanation for why a reviewed drug is still open (or how it
 -- was closed): one row per remark, never overwritten — auditors read the

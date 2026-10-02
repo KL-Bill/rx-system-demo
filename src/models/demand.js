@@ -40,10 +40,27 @@ async function allItems({ from, to } = {}) {
     return out;
 }
 
-const statusInfo = async (reason, key) => {
+// Where a drug stands, and whether the ward has prescribed it AGAIN since it
+// was closed. "Restocked" means stock arrived; a prescription written after
+// that says it ran out again, so the row is reopened rather than left sitting
+// in Resolved where nobody looks. The old decision is kept — it is in the
+// timeline, and `reopenedFrom` says what it was.
+//   dates: every prescription date in this group, for this reason
+const statusInfo = async (reason, key, dates = []) => {
     const rec = await db.getStatus(reason, key);
     const status = rec ? rec.status : 'pending';
-    return { status, statusDate: rec ? rec.statusDate : null, resolved: status === 'added_to_formulary' || status === 'restocked' };
+    const closed = status === 'added_to_formulary' || status === 'restocked';
+    const statusDate = rec ? rec.statusDate : null;
+    const since = closed && statusDate ? dates.filter((d) => d > statusDate).sort((a, b) => a - b) : [];
+    const reopened = since.length > 0;
+    return {
+        status, statusDate,
+        resolved: closed && !reopened,
+        reopened,
+        reopenedFrom: reopened ? status : null,          // what it had been closed as
+        reopenedSince: reopened ? since[0] : null,       // the prescription that brought it back
+        sinceCount: since.length,                        // how many since it was closed
+    };
 };
 
 // the pharmacy's remarks, grouped per reason::key, newest first
@@ -88,12 +105,13 @@ async function aggregate({ reason, from, to, department } = {}) {
                 generic: it.genericName, brand: it.brandName, form: it.formName, strength: it.strength,
                 registrationNumber: it.registrationNumber || null,
                 prescriptions: 0, volume: 0, departments: new Set(), doctors: new Set(),
-                byDept: new Map(), byDoctor: new Map(), lastDate: 0,
+                byDept: new Map(), byDoctor: new Map(), lastDate: 0, dates: [],
             };
             groups.set(gk, g);
         }
         g.prescriptions += 1;
         g.volume += it.quantity;
+        g.dates.push(rx.createdAt);
         if (rx.department) g.departments.add(rx.department);
         if (rx.doctor && rx.doctor.name) g.doctors.add(rx.doctor.name);
         tally(g.byDept, rx.department, it.quantity, rx.createdAt);
@@ -110,11 +128,48 @@ async function aggregate({ reason, from, to, department } = {}) {
         departments: [...g.departments], doctors: [...g.doctors],
         byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor),
         lastDate: g.lastDate,
-        ...(await statusInfo(g.reason, g.key)),
+        ...(await statusInfo(g.reason, g.key, g.dates)),
         ...remarkInfo(remarks.get(g.reason + '::' + g.key)),
     })));
     return results.sort((a, b) => b.prescriptions - a.prescriptions || b.volume - a.volume);
 }
+
+// One dated story for a drug: when it was prescribed here, when the pharmacy
+// said something about it, and when its status moved — newest first. Reading
+// it top to bottom answers "prescribed on these days, restocked on that one,
+// prescribed again after".
+const STATUS_WORDS = {
+    pending: 'Pending', under_therapeutics: 'Sent to Therapeutics',
+    added_to_formulary: 'Marked Added to Bizbox', restocked: 'Marked Restocked',
+};
+async function buildTimeline(reason, key, rows, remarks) {
+    const out = [];
+    for (const r of rows) {
+        out.push({
+            at: r.date, type: 'prescribed',
+            text: `Prescribed · ${r.department || '—'}`,
+            detail: [r.doctor ? drName(r.doctor) : '', r.quantity ? `qty ${r.quantity}` : ''].filter(Boolean).join(' · '),
+        });
+    }
+    for (const r of remarks || []) {
+        out.push({
+            at: r.at, type: 'remark', remark: r.remark,
+            text: `Remark · ${r.remark.replace(/_/g, ' ')}`,
+            detail: [r.note || '', r.actor || ''].filter(Boolean).join(' — '),
+        });
+    }
+    for (const e of await db.getStatusEvents(reason, key)) {
+        out.push({
+            at: e.at, type: 'status', status: e.status,
+            text: STATUS_WORDS[e.status] || e.status.replace(/_/g, ' '),
+            detail: [e.actor || '', e.authorizedBy && e.authorizedBy !== e.actor ? `auth. ${e.authorizedBy}` : ''].filter(Boolean).join(' · '),
+        });
+    }
+    return out.sort((a, b) => b.at - a.at);
+}
+
+// the doctor's name as the pages show it
+const drName = (n) => (/^dr\.?\s/i.test(String(n || '').trim()) ? String(n).trim() : `Dr. ${String(n || '').trim()}`);
 
 // per-prescription detail for one drug + reason (who, which dept, how much)
 async function detail(key, reason, { from, to } = {}) {
@@ -134,16 +189,19 @@ async function detail(key, reason, { from, to } = {}) {
     // one arbitrarily and calling it the answer.
     const volumesMl = [...new Set(rows.map((r) => r.volumeMl).filter((v) => v != null))]
         .sort((a, b) => a - b);
+    const info = await statusInfo(reason, key, rows.map((r) => r.date));
+    const remarks = await db.getRemarks(reason, key);
     return {
         key, reason, label, description, kind, supplyCode, generic, brand, form, strength, registrationNumber,
+        timeline: await buildTimeline(reason, key, rows, remarks),
         prescriptions: rows.length,
         volume: rows.reduce((s, r) => s + r.quantity, 0),   // total qty, not mL — see tally()
         volumesMl,
         departments: [...new Set(rows.map((r) => r.department))],
         doctors: [...new Set(rows.map((r) => r.doctor).filter(Boolean))],
         rows,
-        ...(await statusInfo(reason, key)),
-        ...remarkInfo(await db.getRemarks(reason, key)),
+        ...info,
+        ...remarkInfo(remarks),
     };
 }
 
