@@ -5,3 +5,4 @@ data.json
 pod.yaml
 logs
 .claude/settings.local.json
+backups
