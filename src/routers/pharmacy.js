@@ -14,6 +14,8 @@ router.post('/status/bulk', c.statusBulk);
 // remarks: admin, or staff with an admin password in the body (checked in the model)
 router.get('/remarks', c.remarks);
 router.post('/remarks', c.addRemark);
+// correcting one is the pharmacy head's alone; the model enforces it
+router.post('/remarks/:id', c.editRemark);
 
 // catalog: "what else exists under this generic" is read-only and open to
 // both roles; adding to Bizbox by hand is the pharmacy head's alone

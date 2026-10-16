@@ -158,6 +158,15 @@ async function buildTimeline(reason, key, rows, remarks) {
             detail: [r.note || '', r.actor || ''].filter(Boolean).join(' — '),
         });
     }
+    for (const e of await db.getRemarkEdits(reason, key)) {
+        const was = `${e.oldRemark.replace(/_/g, ' ')}${e.oldNote ? `: ${e.oldNote}` : ''}`;
+        const now = `${e.newRemark.replace(/_/g, ' ')}${e.newNote ? `: ${e.newNote}` : ''}`;
+        out.push({
+            at: e.at, type: 'edit',
+            text: 'Remark corrected',
+            detail: `was "${was}" — now "${now}"${e.actor ? ` · ${e.actor}` : ''}`,
+        });
+    }
     for (const e of await db.getStatusEvents(reason, key)) {
         out.push({
             at: e.at, type: 'status', status: e.status,

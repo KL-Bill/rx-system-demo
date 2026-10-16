@@ -182,10 +182,30 @@ CREATE TABLE review_remarks (
   note TEXT,
   actor TEXT,
   authorized_by TEXT,
-  at BIGINT NOT NULL
+  at BIGINT NOT NULL,
+  edited_at BIGINT,              -- last correction (see review_remark_edits)
+  edited_by TEXT
 );
 
 CREATE INDEX idx_review_remarks_drug ON review_remarks (reason, drug_key, at DESC);
+
+-- A remark can be corrected by the pharmacy head — somebody picks the wrong
+-- preset, or writes the note on the wrong row. The row is updated in place
+-- (so the history reads as what the pharmacy means today) and every edit is
+-- kept here with what it used to say. Nothing a person wrote is destroyed.
+
+CREATE TABLE review_remark_edits (
+  id TEXT PRIMARY KEY,
+  remark_id TEXT NOT NULL REFERENCES review_remarks(id) ON DELETE CASCADE,
+  old_remark TEXT NOT NULL,
+  old_note TEXT,
+  new_remark TEXT NOT NULL,
+  new_note TEXT,
+  actor TEXT,
+  at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_review_remark_edits_remark ON review_remark_edits (remark_id, at DESC);
 
 -- ---------- Bizbox imports ----------
 -- One row per uploaded Bizbox export. The row IS the job: the analyze and

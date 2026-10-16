@@ -69,6 +69,12 @@ const addRemark = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
+const editRemark = async (req, res) => {
+    try {
+        return res.json({ success: true, ...(await pharmacy.editRemark({ ...(req.body || {}), id: req.params.id }, req.user)) });
+    } catch (err) { return handle(res, err); }
+};
+
 const similar = async (req, res) => {
     try { return res.json({ success: true, products: await pharmacy.similarProducts({ generic: req.query.generic, brand: req.query.brand }) }); }
     catch (err) { return handle(res, err); }
@@ -79,4 +85,4 @@ const addCatalog = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
-module.exports = { review, detail, status, statusBulk, audit, prescriptions, remarks, addRemark, similar, addCatalog };
+module.exports = { review, detail, status, statusBulk, audit, prescriptions, remarks, addRemark, editRemark, similar, addCatalog };

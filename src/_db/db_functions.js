@@ -574,7 +574,44 @@ const addRemark = async ({ reason, drugKey, remark, note, actor, authorizedBy })
     `, [id, reason, drugKey, remark, note || null, actor || null, authorizedBy || null, at]);
     return { id, reason, drugKey, remark, note: note || null, actor: actor || null, authorizedBy: authorizedBy || null, at };
 };
-const mapRemark = (r) => ({ id: r.id, reason: r.reason, drugKey: r.drug_key, remark: r.remark, note: r.note, actor: r.actor, authorizedBy: r.authorized_by, at: toNum(r.at) });
+const mapRemark = (r) => ({
+    id: r.id, reason: r.reason, drugKey: r.drug_key, remark: r.remark, note: r.note,
+    actor: r.actor, authorizedBy: r.authorized_by, at: toNum(r.at),
+    editedAt: toNum(r.edited_at), editedBy: r.edited_by,
+});
+
+const getRemark = async (id) => {
+    const { rows } = await pool.query('SELECT * FROM review_remarks WHERE id = $1', [id]);
+    return rows[0] ? mapRemark(rows[0]) : null;
+};
+
+// Correct a remark: the row carries what the pharmacy means now, and the edit
+// row keeps what it said before. -> the remark as it now reads.
+const updateRemark = async (id, { remark, note, actor }) => {
+    const before = await getRemark(id);
+    if (!before) return null;
+    const at = Date.now();
+    await pool.query(`
+        INSERT INTO review_remark_edits (id, remark_id, old_remark, old_note, new_remark, new_note, actor, at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [newId('rme'), id, before.remark, before.note, remark, note || null, actor || null, at]);
+    await pool.query(
+        'UPDATE review_remarks SET remark = $2, note = $3, edited_at = $4, edited_by = $5 WHERE id = $1',
+        [id, remark, note || null, at, actor || null]);
+    return { before, after: await getRemark(id) };
+};
+
+// every correction made to the remarks on one drug, for the timeline
+const getRemarkEdits = async (reason, drugKey) => {
+    const { rows } = await pool.query(`
+        SELECT e.id, e.remark_id AS "remarkId", e.old_remark AS "oldRemark", e.old_note AS "oldNote",
+               e.new_remark AS "newRemark", e.new_note AS "newNote", e.actor, e.at
+          FROM review_remark_edits e
+          JOIN review_remarks r ON r.id = e.remark_id
+         WHERE r.reason = $1 AND r.drug_key = $2
+         ORDER BY e.at`, [reason, drugKey]);
+    return rows.map((r) => ({ ...r, at: toNum(r.at) }));
+};
 const getRemarks = async (reason, drugKey) => {
     const { rows } = await pool.query(
         'SELECT * FROM review_remarks WHERE reason = $1 AND drug_key = $2 ORDER BY at DESC', [reason, drugKey]);
@@ -1040,7 +1077,7 @@ module.exports = {
     addPrescription, getPrescriptions, getPrescriptionsByIds,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
-    addRemark, getRemarks, getAllRemarks, getStatusEvents, findSimilarProducts,
+    addRemark, getRemarks, getAllRemarks, getRemark, updateRemark, getRemarkEdits, getStatusEvents, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
     claimImport, searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,

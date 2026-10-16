@@ -140,6 +140,37 @@ const addRemark = async ({ key, reason, remark, note, drug, resolve }, actor, au
     return { remark: rec, resolvedStatus, detail: await demand.detail(key, reason) };
 };
 
+// Correct a remark somebody got wrong — the pharmacy head only.
+//
+// The remark row is updated so the history reads as what the pharmacy means
+// today, and db.updateRemark keeps what it said before. Deliberately NOT
+// touched: the row's status. "Available in Bizbox" resolved the row by adding
+// the medicine to the RX Formulary and marking it; editing the sentence
+// afterwards cannot un-add a medicine, so changing the preset here changes the
+// words only. Undoing the resolution is a separate, visible act.
+const editRemark = async ({ id, remark, note, drug }, actor) => {
+    if (actor.role !== 'admin') throw httpError(403, 'Only the pharmacy head can correct a remark.');
+    if (!id) throw httpError(400, 'Missing remark');
+    if (!REMARKS[remark]) throw httpError(400, 'Unknown remark');
+    note = String(note || '').trim().slice(0, 500);
+
+    const existing = await db.getRemark(id);
+    if (!existing) throw httpError(404, 'That remark no longer exists.');
+    if (existing.remark === remark && (existing.note || '') === note) {
+        return { remark: existing, changed: false, detail: await demand.detail(existing.drugKey, existing.reason) };
+    }
+
+    const { before, after } = await db.updateRemark(id, { remark, note, actor: actor.name });
+    await db.addAudit({
+        action: 'remark_edit',
+        drug: (drug && drug.label) || existing.drugKey,
+        reason: existing.reason,
+        status: `${before.remark}${before.note ? `: ${before.note}` : ''} -> ${after.remark}${after.note ? `: ${after.note}` : ''}`,
+        actor: actor.name, authorizedBy: actor.name,
+    });
+    return { remark: after, changed: true, statusUnchanged: before.remark !== after.remark, detail: await demand.detail(existing.drugKey, existing.reason) };
+};
+
 // ----- catalog (admin) -----
 const similarProducts = ({ generic, brand }) => {
     if (!String(generic || '').trim()) return [];
@@ -214,5 +245,5 @@ const addCatalogSupply = async (body, actor) => {
 
 module.exports = {
     getReview, getDetail, setStatus, setStatusBulk, getAudit, listPrescriptions,
-    REMARKS, listRemarks, addRemark, similarProducts, addCatalogProduct, addCatalogSupply,
+    REMARKS, listRemarks, addRemark, editRemark, similarProducts, addCatalogProduct, addCatalogSupply,
 };

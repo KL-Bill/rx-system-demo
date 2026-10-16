@@ -375,16 +375,19 @@
     // The drawer shows the latest remark only — a long-open row can collect
     // dozens — and "View all" opens the whole history in a modal. Reports
     // keeps the full list inline: there it is the audit copy.
-    const remarkCard = (r) => `
-            <div class="remark">
-                <div class="top">${remarkBadge(r.remark)}<span class="who">${escapeHtml(r.actor || '')}${r.authorizedBy && r.authorizedBy !== r.actor ? ` · auth. ${escapeHtml(r.authorizedBy)}` : ''} · ${fmtDT(r.at)}</span></div>
+    // opts.editable: show the pharmacy head's Correct button (history window only)
+    const remarkCard = (r, opts = {}) => `
+            <div class="remark" data-rmk-id="${escapeHtml(r.id || '')}">
+                <div class="top">${remarkBadge(r.remark)}<span class="who">${escapeHtml(r.actor || '')}${r.authorizedBy && r.authorizedBy !== r.actor ? ` · auth. ${escapeHtml(r.authorizedBy)}` : ''} · ${fmtDT(r.at)}</span>${opts.editable && isAdmin ? `<button type="button" class="icon-btn rmk-edit" data-edit-rmk="${escapeHtml(r.id)}" title="Correct this remark" aria-label="Correct this remark"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}</div>
                 ${r.note ? `<div class="note">${escapeHtml(r.note)}</div>` : ''}
+                ${r.editedAt ? `<div class="edited">Corrected by ${escapeHtml(r.editedBy || '')} · ${fmtDT(r.editedAt)}</div>` : ''}
             </div>`;
     function renderRemarks(row) {
         const list = row.remarks || [];
         if (!list.length) { $('dRemarks').innerHTML = '<div class="muted" style="font-size:12.5px">No remarks yet. Use "Set remark" on the row.</div>'; return; }
-        $('dRemarks').innerHTML = remarkCard(list[0]) + (list.length > 1
+        $('dRemarks').innerHTML = remarkCard(list[0], { editable: true }) + (list.length > 1
             ? `<button type="button" class="btn-link sm rmk-all-btn" id="rmkAllBtn">View all remarks (${list.length})</button>` : '');
+        wireRemarkEdits($('dRemarks'), list);
         const all = $('rmkAllBtn');
         if (all) all.onclick = () => openRemarkHistory(row);
     }
@@ -393,12 +396,66 @@
         const list = row.remarks || [];
         $('rmkDrug').textContent = row.kind === 'supply' ? `${row.generic} (supply)` : `${row.generic} — ${row.description}`;
         $('rmkCount').textContent = `${list.length} remark${list.length === 1 ? '' : 's'}, newest first`;
-        $('rmkList').innerHTML = list.map(remarkCard).join('');
+        $('rmkList').innerHTML = list.map((r) => remarkCard(r, { editable: true })).join('');
+        wireRemarkEdits($('rmkList'), list);
         rmkDlg.showModal();
         $('rmkList').scrollTop = 0;
         $('rmkClose').focus();
     }
     $('rmkClose').onclick = () => rmkDlg.close();
+
+    // Correcting a remark: the words change, the row's status does not — see
+    // models/pharmacy.js. The old wording stays in the history either way.
+    // the Correct buttons, wherever the cards were drawn
+    function wireRemarkEdits(host, list) {
+        host.querySelectorAll('[data-edit-rmk]').forEach((b) => {
+            b.onclick = () => openRemarkEdit((list || []).find((x) => x.id === b.dataset.editRmk), b.closest('.remark'));
+        });
+    }
+
+    function openRemarkEdit(rec, card) {
+        if (!rec || !card || card.querySelector('.rmk-edit-form')) return;
+        const pencil = card.querySelector('.rmk-edit');
+        card.insertAdjacentHTML('beforeend', `
+            <div class="rmk-edit-form">
+                <label>Remark</label>
+                <select class="re-preset">${Object.entries(PRESETS).map(([k, l]) => `<option value="${k}" ${k === rec.remark ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+                <label>Note</label>
+                <textarea class="re-note rmk-textarea" rows="2">${escapeHtml(rec.note || '')}</textarea>
+                <div class="re-hint muted">The wording changes; the row keeps the status it has. Both versions stay in the history.</div>
+                <div class="errbox re-err"></div>
+                <div class="re-actions">
+                    <button type="button" class="ghost sm re-cancel">Cancel</button>
+                    <button type="button" class="sm re-save">Save correction</button>
+                </div>
+            </div>`);
+        if (pencil) pencil.style.display = 'none';
+        const form = card.querySelector('.rmk-edit-form');
+        const err = form.querySelector('.re-err');
+        form.querySelector('.re-cancel').onclick = () => { form.remove(); if (pencil) pencil.style.display = ''; };
+        form.querySelector('.re-save').onclick = async () => {
+            const btn = form.querySelector('.re-save');
+            btn.disabled = true;
+            const res = await api(`/api/pharmacy/remarks/${encodeURIComponent(rec.id)}`, {
+                body: { remark: form.querySelector('.re-preset').value, note: form.querySelector('.re-note').value, drug: { label: current && current.row ? current.row.label : '' } },
+            });
+            btn.disabled = false;
+            if (!res.ok) { err.textContent = res.data.message || 'Could not save the correction'; err.classList.add('show'); return; }
+            // the row, the panel and the window all have to agree afterwards.
+            // load() replaces the row objects with fresh table rows, which carry
+            // no timeline — so put the detail back on the one we are showing.
+            const was = current && current.row ? { key: current.row.key, reason: current.row.reason } : null;
+            await load();
+            if (!was) { form.remove(); if (pencil) pencil.style.display = ''; return; }
+            const fresh = allRows().find((r) => r.key === was.key && r.reason === was.reason) || current.row;
+            if (res.data.detail) Object.assign(fresh, res.data.detail);
+            current.row = fresh;
+            renderRemarks(fresh);
+            renderTimeline(fresh);
+            if (rmkDlg.open) openRemarkHistory(fresh);
+        };
+        form.querySelector('.re-preset').focus();
+    }
 
     // ---------- Set remark: the stepper ----------
     // Step 1 picks the remark and a note. "Available in Bizbox" on a not-in-

@@ -133,6 +133,25 @@ async function main() {
                     WHERE e.reason = s.reason AND e.drug_key = s.drug_key AND e.at = s.status_date)
         `);
 
+        // 8. remarks can be corrected by the pharmacy head. The remark row is
+        //    updated in place; what it said before is kept here, so nothing a
+        //    person wrote is ever destroyed.
+        await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS edited_at BIGINT');
+        await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS edited_by TEXT');
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS review_remark_edits (
+              id TEXT PRIMARY KEY,
+              remark_id TEXT NOT NULL REFERENCES review_remarks(id) ON DELETE CASCADE,
+              old_remark TEXT NOT NULL,
+              old_note TEXT,
+              new_remark TEXT NOT NULL,
+              new_note TEXT,
+              actor TEXT,
+              at BIGINT NOT NULL
+            )
+        `);
+        await client.query('CREATE INDEX IF NOT EXISTS idx_review_remark_edits_remark ON review_remark_edits (remark_id, at DESC)');
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS catalog_import_exclusions (
               description_key TEXT PRIMARY KEY,
