@@ -144,6 +144,7 @@
 
         // ---------- list ----------
         async function load() {
+            $('fmGrid').innerHTML = `<tbody>${loadingRows(8, kind === 'sup' ? 'Loading supplies…' : 'Loading medicines…')}</tbody>`;
             const p = new URLSearchParams({ q, bizbox, brand, limit: PAGE, offset });
             const res = await api((kind === 'sup' ? '/api/formulary/supplies?' : '/api/formulary?') + p);
             if (!res.ok) { $('fmGrid').innerHTML = `<tbody><tr><td class="muted">${esc(res.data.message || 'Could not load')}</td></tr></tbody>`; return; }

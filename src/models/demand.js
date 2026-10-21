@@ -29,16 +29,32 @@ const reasonsWanted = (reason) => {
     return [reason];
 };
 
-// every prescription item, within an optional date range
+// every prescription item, within an optional date range. The range goes to
+// SQL, not to a filter here — see db.getPrescriptions.
+//
+// Reading and parsing a year of prescriptions is the expensive part of this
+// file, and a single screen does it more than once: Review asks twice (the
+// problems and the anomalies), opening a row asks again, and the report and
+// the log sit on the same rows. So a window is remembered for a few seconds —
+// long enough to serve one screen's burst, short enough that a prescription
+// printed on a ward shows up on the next refresh.
+const ITEMS_TTL_MS = 8000;
+const itemsCache = new Map();           // "from|to" -> { at, items }
 async function allItems({ from, to } = {}) {
+    const key = `${from == null ? '' : from}|${to == null ? '' : to}`;
+    const hit = itemsCache.get(key);
+    if (hit && Date.now() - hit.at < ITEMS_TTL_MS) return hit.items;
+
     const out = [];
-    for (const rx of await db.getPrescriptions()) {
-        if (from != null && rx.createdAt < from) continue;
-        if (to != null && rx.createdAt > to) continue;
+    for (const rx of await db.getPrescriptions({ from, to })) {
         for (const it of rx.items) out.push({ rx, it });
     }
+    if (itemsCache.size > 8) itemsCache.clear();
+    itemsCache.set(key, { at: Date.now(), items: out });
     return out;
 }
+// a new prescription, or a deletion, must not wait for the TTL
+const forgetItems = () => itemsCache.clear();
 
 // Where a drug stands, and whether the ward has prescribed it AGAIN since it
 // was closed. "Restocked" means stock arrived; a prescription written after
@@ -46,8 +62,9 @@ async function allItems({ from, to } = {}) {
 // in Resolved where nobody looks. The old decision is kept — it is in the
 // timeline, and `reopenedFrom` says what it was.
 //   dates: every prescription date in this group, for this reason
-const statusInfo = async (reason, key, dates = []) => {
-    const rec = await db.getStatus(reason, key);
+// `rec` is the review_status row, or null. Pass one in from a batch when
+// looking at many drugs at once (aggregate); leave it out for a single row.
+const statusInfoFrom = (rec, dates = []) => {
     const status = rec ? rec.status : 'pending';
     const closed = status === 'added_to_formulary' || status === 'restocked';
     const statusDate = rec ? rec.statusDate : null;
@@ -62,6 +79,7 @@ const statusInfo = async (reason, key, dates = []) => {
         sinceCount: since.length,                        // how many since it was closed
     };
 };
+const statusInfo = async (reason, key, dates = []) => statusInfoFrom(await db.getStatus(reason, key), dates);
 
 // the pharmacy's remarks, grouped per reason::key, newest first
 const remarksByDrug = async () => {
@@ -73,7 +91,12 @@ const remarksByDrug = async () => {
     }
     return map;
 };
-const remarkInfo = (list) => ({ remarks: list || [], lastRemark: (list && list[0]) || null });
+// the whole history for a single row; for a list, the latest and a count —
+// plus the time of the newest, which is what tells the Review tabs whether
+// somebody has spoken since the row came back
+const remarkInfo = (list, summary = false) => (summary
+    ? { remarkCount: (list || []).length, lastRemark: (list && list[0]) || null, lastRemarkAt: (list && list[0] && list[0].at) || null }
+    : { remarks: list || [], remarkCount: (list || []).length, lastRemark: (list && list[0]) || null, lastRemarkAt: (list && list[0] && list[0].at) || null });
 
 // NOTE: `volume` here means TOTAL QUANTITY PRESCRIBED — a count of units, not
 // millilitres. A liquid medicine also has a real volume (item.volumeMl, the mL
@@ -89,7 +112,13 @@ const tally = (map, name, qty, date) => {
 const listOf = (map) => [...map.values()].sort((a, b) => b.volume - a.volume || b.prescriptions - a.prescriptions);
 
 // grouped by drug + reason, ranked by demand. Optional department scope.
-async function aggregate({ reason, from, to, department } = {}) {
+//
+// summary:true leaves out the per-doctor and per-department breakdowns. They
+// are 89% of the bytes on a year of data (2.9 MB of a 4.3 MB answer) and the
+// Review table shows none of it — the detail panel asks for the one row the
+// reviewer opened. Reports still takes the full shape: it prints the
+// breakdowns.
+async function aggregate({ reason, from, to, department, summary = false } = {}) {
     const wanted = reasonsWanted(reason);
     const groups = new Map();
     for (const { rx, it } of await allItems({ from, to })) {
@@ -119,6 +148,8 @@ async function aggregate({ reason, from, to, department } = {}) {
         g.lastDate = Math.max(g.lastDate, rx.createdAt);
     }
     const remarks = await remarksByDrug();
+    // one query for every status, instead of one per row
+    const statuses = new Map((await db.getAllStatuses()).map((r) => [r.reason + '::' + r.drugKey, r]));
     const results = await Promise.all([...groups.values()].map(async (g) => ({
         key: g.key, reason: g.reason, label: g.label, description: g.description,
         kind: g.kind, supplyCode: g.supplyCode,
@@ -126,10 +157,10 @@ async function aggregate({ reason, from, to, department } = {}) {
         registrationNumber: g.registrationNumber,
         prescriptions: g.prescriptions, volume: g.volume,
         departments: [...g.departments], doctors: [...g.doctors],
-        byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor),
+        ...(summary ? {} : { byDepartment: listOf(g.byDept), byDoctor: listOf(g.byDoctor) }),
         lastDate: g.lastDate,
-        ...(await statusInfo(g.reason, g.key, g.dates)),
-        ...remarkInfo(remarks.get(g.reason + '::' + g.key)),
+        ...statusInfoFrom(statuses.get(g.reason + '::' + g.key) || null, g.dates),
+        ...remarkInfo(remarks.get(g.reason + '::' + g.key), summary),
     })));
     return results.sort((a, b) => b.prescriptions - a.prescriptions || b.volume - a.volume);
 }
@@ -198,6 +229,16 @@ async function detail(key, reason, { from, to } = {}) {
     // one arbitrarily and calling it the answer.
     const volumesMl = [...new Set(rows.map((r) => r.volumeMl).filter((v) => v != null))]
         .sort((a, b) => a - b);
+    // the same tallies aggregate() builds, for the one drug being opened.
+    // The detail used to leave these out and the pages read them off the list
+    // row instead — which stopped working the moment the list became a
+    // summary, and left the breakdown tables empty.
+    const byDept = new Map(), byDoctor = new Map();
+    for (const r of rows) {
+        tally(byDept, r.department, r.quantity, r.date);
+        tally(byDoctor, r.doctor, r.quantity, r.date);
+    }
+
     const info = await statusInfo(reason, key, rows.map((r) => r.date));
     const remarks = await db.getRemarks(reason, key);
     return {
@@ -208,10 +249,11 @@ async function detail(key, reason, { from, to } = {}) {
         volumesMl,
         departments: [...new Set(rows.map((r) => r.department))],
         doctors: [...new Set(rows.map((r) => r.doctor).filter(Boolean))],
+        byDepartment: listOf(byDept), byDoctor: listOf(byDoctor),
         rows,
         ...info,
         ...remarkInfo(remarks),
     };
 }
 
-module.exports = { aggregate, detail, labelOf, descriptionOf };
+module.exports = { aggregate, detail, labelOf, descriptionOf, forgetItems };

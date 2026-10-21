@@ -30,7 +30,8 @@
     const isReviewed = (r) => {
         if (r.resolved) return false;
         const since = r.reopened ? (r.reopenedSince || 0) : 0;
-        const spoken = (r.remarks || []).some((x) => x.at > since);
+        // the list carries the newest remark's time, not every remark
+        const spoken = (r.lastRemarkAt || 0) > since;
         return spoken || (r.status === 'under_therapeutics' && !r.reopened);
     };
 
@@ -63,7 +64,7 @@
     // the table is where the work happens, the side panel only explains
     const remarkCell = (r, i) => {
         const last = r.lastRemark
-            ? `${remarkBadge(r.lastRemark.remark)}${r.lastRemark.note ? `<span class="note" title="${escapeHtml(r.lastRemark.note)}">${escapeHtml(r.lastRemark.note)}</span>` : ''}<span class="n">${escapeHtml(r.lastRemark.actor || '')} · ${fmtDT(r.lastRemark.at)}${r.remarks.length > 1 ? ` · +${r.remarks.length - 1} earlier` : ''}</span>`
+            ? `${remarkBadge(r.lastRemark.remark)}${r.lastRemark.note ? `<span class="note" title="${escapeHtml(r.lastRemark.note)}">${escapeHtml(r.lastRemark.note)}</span>` : ''}<span class="n">${escapeHtml(r.lastRemark.actor || '')} · ${fmtDT(r.lastRemark.at)}${r.remarkCount > 1 ? ` · +${r.remarkCount - 1} earlier` : ''}</span>`
             : '<span class="muted">No remark yet</span>';
         return `<div class="rmk-cell">${last}<button class="ghost sm rmk-set" type="button" data-rmk="${i}">${r.lastRemark ? 'Add remark' : 'Set remark'}</button></div>`;
     };
@@ -121,14 +122,20 @@
     // ---------- data ----------
     // everything once for the period; department and the rest are filters over these rows
     async function load() {
+        // the table says it is working; without this a slow period change
+        // looks like the screen hung with the old rows still on it
+        const body = $('tbl');
+        if (body) body.innerHTML = loadingRows(9, 'Loading the review…');
+        const empty = $('empty');
+        if (empty) empty.style.display = 'none';
         const per = periodQs();
-        const [a, b] = await Promise.all([
-            api('/api/pharmacy/review?reason=both' + per),
-            api('/api/pharmacy/review?reason=normal' + per),
-        ]);
-        if (!a.ok || !b.ok) { window.location.href = '/login'; return; }
-        problems = a.data.review;
-        anomalies = b.data.review;
+        // one pass over the period, split here — asking twice walked every
+        // prescription twice for the same screen
+        const res = await api('/api/pharmacy/review?reason=all' + per);
+        if (!res.ok) { window.location.href = '/login'; return; }
+        const rows = res.data.review || [];
+        problems = rows.filter((r) => r.reason !== 'normal');
+        anomalies = rows.filter((r) => r.reason === 'normal');
         selected.clear();
         render();
     }
@@ -169,7 +176,7 @@
         rx: { th: '<th># RX</th>', td: (r) => `<td>${r.prescriptions}</td>` },
         qty: { th: '<th># Prescribed</th>', td: (r) => `<td>${r.volume}</td>` },
         departments: { th: '<th>Departments</th>', td: (r) => `<td class="muted">${escapeHtml(r.departments.join(', '))}</td>` },
-        doctors: { th: '<th>Doctors</th>', td: (r) => `<td class="muted">${escapeHtml(r.byDoctor.map((x) => drName(x.name)).join('; '))}</td>` },
+        doctors: { th: '<th>Doctors</th>', td: (r) => `<td class="muted">${escapeHtml((r.doctors || []).map(drName).join('; '))}</td>` },
         last: { th: '<th>Last prescribed</th>', td: (r) => `<td>${fmtDT(r.lastDate)}</td>` },
         status: { th: '<th>Status</th>', td: (r) => `<td>${statusBadge(r)}</td>` },
         remarks: { th: '<th>Remarks</th>', td: (r, i) => `<td>${remarkCell(r, i)}</td>` },
@@ -247,11 +254,12 @@
         await sendBulk(action, '');
     }
     async function sendBulk(action, pw) {
+        const bulkBtn = $('bulkActions').querySelector(`[data-a="${action}"]`) || $('bConfirm');
         const drugs = [...selected.values()].map((r) => ({
             key: r.key, reason: r.reason, label: r.label, supplyCode: r.supplyCode || null,
             generic: r.generic, brand: r.brand, form: r.form, strength: r.strength,
         }));
-        const res = await api('/api/pharmacy/status/bulk', { body: { drugs, action, authorizerPassword: pw } });
+        const res = await withButton(bulkBtn, 'Applying…', () => api('/api/pharmacy/status/bulk', { body: { drugs, action, authorizerPassword: pw } }));
         if (res.ok) { $('bulkModal').classList.remove('show'); load(); }
         else {
             // staff read the reason inside the authorize modal they are already
@@ -295,6 +303,8 @@
         // the table rows carry no timeline (one query per row would be silly);
         // fetch the full detail for the one being opened
         if (!row.timeline) {
+            const tl = $('dTimeline');
+            if (tl) tl.innerHTML = '<div class="muted" style="font-size:12.5px"><span class="spin dark"></span>Loading the history…</div>';
             const res = await api(`/api/pharmacy/detail?key=${encodeURIComponent(row.key)}&reason=${encodeURIComponent(row.reason)}`);
             if (res.ok && res.data.detail) Object.assign(row, res.data.detail);
         }
@@ -309,12 +319,16 @@
 
         $('d-rx').textContent = row.prescriptions;
         $('d-vol').textContent = row.volume;
-        $('d-dept').textContent = row.departments.length;
+        $('d-dept').textContent = (row.departments || []).length;
 
-        $('dRows').innerHTML = [...row.byDoctor].sort((a, b) => b.lastDate - a.lastDate)
-            .map((x) => `<tr><td>${escapeHtml(drName(x.name))}</td><td>${x.prescriptions}</td><td>${x.volume}</td><td>${fmtDT(x.lastDate)}</td></tr>`).join('');
-        $('dDept').innerHTML = [...row.byDepartment].sort((a, b) => b.lastDate - a.lastDate)
-            .map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${x.prescriptions}</td><td>${x.volume}</td></tr>`).join('');
+        // the list rows carry no breakdowns — they arrive with the detail
+        // above, and stay empty if that call could not be made
+        const byDoctor = row.byDoctor || [], byDept = row.byDepartment || [];
+        const noData = '<tr><td colspan="4" class="muted">Not loaded.</td></tr>';
+        $('dRows').innerHTML = byDoctor.length ? [...byDoctor].sort((a, b) => b.lastDate - a.lastDate)
+            .map((x) => `<tr><td>${escapeHtml(drName(x.name))}</td><td>${x.prescriptions}</td><td>${x.volume}</td><td>${fmtDT(x.lastDate)}</td></tr>`).join('') : noData;
+        $('dDept').innerHTML = byDept.length ? [...byDept].sort((a, b) => b.lastDate - a.lastDate)
+            .map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${x.prescriptions}</td><td>${x.volume}</td></tr>`).join('') : noData;
 
         const reasonLabel = row.reason === 'not_in_formulary' ? 'Not in Bizbox'
             : row.reason === 'out_of_stock' ? 'Out of stock' : 'Prescribed but In Bizbox';
@@ -360,12 +374,13 @@
 
     async function doStatus(action) {
         const { row } = current;
+        const btn = $('dActions').querySelector(`[data-action="${action}"]`);
         const body = {
             key: row.key, reason: row.reason, action,
             drug: { label: row.label, generic: row.generic, brand: row.brand, form: row.form, strength: row.strength, supplyCode: row.supplyCode || null },
         };
         if (isStaff) body.authorizerPassword = $('dAuth').value;
-        const res = await api('/api/pharmacy/status', { body });
+        const res = await withButton(btn, 'Saving…', () => api('/api/pharmacy/status', { body }));
         if (res.ok) { showDetail(false); load(); }
         else detailError(res.data.message || 'Could not update');
     }
@@ -434,12 +449,9 @@
         const err = form.querySelector('.re-err');
         form.querySelector('.re-cancel').onclick = () => { form.remove(); if (pencil) pencil.style.display = ''; };
         form.querySelector('.re-save').onclick = async () => {
-            const btn = form.querySelector('.re-save');
-            btn.disabled = true;
-            const res = await api(`/api/pharmacy/remarks/${encodeURIComponent(rec.id)}`, {
+            const res = await withButton(form.querySelector('.re-save'), 'Saving…', () => api(`/api/pharmacy/remarks/${encodeURIComponent(rec.id)}`, {
                 body: { remark: form.querySelector('.re-preset').value, note: form.querySelector('.re-note').value, drug: { label: current && current.row ? current.row.label : '' } },
-            });
-            btn.disabled = false;
+            }));
             if (!res.ok) { err.textContent = res.data.message || 'Could not save the correction'; err.classList.add('show'); return; }
             // the row, the panel and the window all have to agree afterwards.
             // load() replaces the row objects with fresh table rows, which carry
@@ -579,9 +591,7 @@
             body.resolve = { generic: s.generic, brand: s.brand, form: s.form, strength: s.strength, description: s.description, volumeMl: s.volumeMl };
         }
         if (isStaff) body.authorizerPassword = $('rvAuth').value;
-        const btn = $('rvNext'); btn.disabled = true;
-        const res = await api('/api/pharmacy/remarks', { body });
-        btn.disabled = false;
+        const res = await withButton($('rvNext'), 'Saving…', () => api('/api/pharmacy/remarks', { body }));
         if (!res.ok) { rvError(res.data.message || 'Could not save'); return; }
         rvDlg.close();
         if (res.data.resolvedStatus) {

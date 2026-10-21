@@ -16,23 +16,33 @@
 .detail-table th, .detail-table td { padding: 5px 8px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
 .detail-table th { text-transform: none; letter-spacing: 0; color: var(--navy); }
 .detail-remarks { margin-top: 10px; font-size: 12.5px; }
-.detail-remarks .dr-h { font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+.detail-remarks .dr-h {
+    display: flex; align-items: baseline; gap: 8px;
+    font-weight: 700; color: var(--navy); margin-bottom: 4px;
+}
+.detail-remarks .dr-h .bd-tot { font-weight: 600; }
 .detail-remarks .dr-row { padding: 2px 0; }
 #reportTable .rmk-cell .note { max-width: 200px; }
 
 /* column / section toggles — set by the print preview on #report (and its clone) */
-#report.hide-reason [data-col="reason"], #report.hide-rx [data-col="rx"], #report.hide-qty [data-col="qty"],
-#report.hide-departments [data-col="departments"], #report.hide-status [data-col="status"], #report.hide-remarks [data-col="remarks"],
-#ppReport.hide-reason [data-col="reason"], #ppReport.hide-rx [data-col="rx"], #ppReport.hide-qty [data-col="qty"],
-#ppReport.hide-departments [data-col="departments"], #ppReport.hide-status [data-col="status"], #ppReport.hide-remarks [data-col="remarks"] { display: none; }
-#report.no-breakdown .breakdown, #ppReport.no-breakdown .breakdown { display: none; }
-#report.no-history .detail-remarks, #ppReport.no-history .detail-remarks { display: none; }
-#report.no-breakdown.no-history .detail-row, #ppReport.no-breakdown.no-history .detail-row { display: none !important; }
+/* These used to be scoped to #report / #ppReport. Every printed page is now
+   its own element — there is only one of each id — so a page carried the
+   columns the reviewer had switched off, while the page COUNT (measured on a
+   clone that did have the id) obeyed them. Class selectors apply wherever the
+   settings are applied: the screen, the preview pages, and the printed ones. */
+.hide-reason [data-col="reason"], .hide-rx [data-col="rx"], .hide-qty [data-col="qty"],
+.hide-departments [data-col="departments"], .hide-status [data-col="status"], .hide-remarks [data-col="remarks"] { display: none; }
+.no-breakdown .breakdown { display: none; }
+.no-history .detail-remarks { display: none; }
+.no-breakdown.no-history .detail-row { display: none !important; }
 
 /* ===== print preview dialog ===== */
 dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; height: min(92vh, 1000px); max-height: 92vh; padding: 0; overflow: hidden; }
 .pp { display: grid; grid-template-columns: 300px 1fr; height: 100%; }
-.pp-side { padding: 20px 20px 16px; border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
+/* The settings scroll; the title and the action bar do not. Sticky was tried
+   first and floated the bar over the controls it was meant to sit below. */
+.pp-side { padding: 20px 20px 16px; border-right: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; }
+.pp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
 .pp-side .dlg-title { margin-bottom: 4px; }
 .pp-side label { margin-top: 12px; }
 .pp-side input[type="range"] { width: 100%; padding: 0; }
@@ -44,7 +54,22 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
 .pp-cols input, .pp-check input { width: 16px; height: 16px; margin: 0; flex: none; }
 .pp-check { margin-top: 10px; align-items: flex-start; }
 .pp-check input { margin-top: 2px; }
-.pp-actions { display: flex; gap: 8px; align-items: center; margin-top: auto; padding-top: 18px; }
+/* Four buttons never fitted this column — Print ended up clipped at the
+   panel edge. The two that do something to the report get a full-width row
+   each; Reset and Close share the line underneath.
+   The bar is NOT sticky: floating it over a scrolling column buried the
+   Pages-to-print row and both checkboxes behind it. */
+.pp-actions {
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    flex: 0 0 auto; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+/* The panel is a flex column. Without this, a column that is one row too tall
+   squeezes its children instead of scrolling — which is how the Portrait /
+   Landscape switch ended up two pixels high. */
+.pp-side > *:not(.pp-scroll), .pp-scroll > * { flex: 0 0 auto; }
+.pp-actions > button { width: 100%; justify-content: center; }
+.pp-actions-minor { display: flex; gap: 8px; }
+.pp-actions-minor button { flex: 1; }
 .pp-stage { background: #e9edf4; overflow: auto; padding: 20px; }
 .pp-sheet {
     background: #fff; box-shadow: 0 8px 30px rgba(20, 48, 107, .18); transform-origin: top left;
@@ -58,15 +83,15 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
 /* Text size: the sheet's font-size is the one knob. Every size inside the
    report (or its preview clone) is in em so it follows; the shared table
    styles pin cells at 13px, so these outrank them. */
-#report.print-like *, #ppReport * { font-size: inherit; }
-#report .rh-title, #ppReport .rh-title { font-size: 1.55em !important; }
-#report .rh-sub, #ppReport .rh-sub, #report .rh-meta, #ppReport .rh-meta { font-size: .95em !important; }
-#report table.dense th, #ppReport table.dense th { font-size: .85em !important; }
-#report table.dense td, #ppReport table.dense td { font-size: 1em !important; }
-#report .detail-table th, #ppReport .detail-table th, #report .detail-table td, #ppReport .detail-table td { font-size: .95em !important; }
-#report .rmk-cell .note, #ppReport .rmk-cell .note, #report .rmk-cell .n, #ppReport .rmk-cell .n { font-size: .9em !important; }
-#report .detail-remarks, #ppReport .detail-remarks { font-size: .95em !important; }
-#report .caret, #ppReport .caret { font-size: .85em !important; }
+.print-like *, #report.print-like *, #ppReport * { font-size: inherit; }
+.print-like .rh-title, #report .rh-title, #ppReport .rh-title { font-size: 1.55em !important; }
+.print-like .rh-sub, .print-like .rh-meta, #report .rh-sub, #ppReport .rh-sub, #report .rh-meta, #ppReport .rh-meta { font-size: .95em !important; }
+.print-like table.dense th, #report table.dense th, #ppReport table.dense th { font-size: .85em !important; }
+.print-like table.dense td, #report table.dense td, #ppReport table.dense td { font-size: 1em !important; }
+.print-like .detail-table th, .print-like .detail-table td, #report .detail-table th, #ppReport .detail-table th, #report .detail-table td, #ppReport .detail-table td { font-size: .95em !important; }
+.print-like .rmk-cell .note, .print-like .rmk-cell .n, #report .rmk-cell .note, #ppReport .rmk-cell .note, #report .rmk-cell .n, #ppReport .rmk-cell .n { font-size: .9em !important; }
+.print-like .detail-remarks, #report .detail-remarks, #ppReport .detail-remarks { font-size: .95em !important; }
+.print-like .caret, #report .caret, #ppReport .caret { font-size: .85em !important; }
 
 /* the clone inside the sheet renders like paper: no card chrome, fixed layout */
 .print-like .tbl-wrap { border: none; box-shadow: none; border-radius: 0; overflow: visible; background: transparent; }
@@ -98,3 +123,286 @@ dialog.dlg-print { max-width: min(1400px, calc(100vw - 32px)); width: 100%; heig
     #report .detail-row td { background: #f7f9fd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     a { color: #000; text-decoration: none; }
 }
+
+/* ===== printing in portrait =====
+   A4 portrait is ~180 mm of usable width for nine columns, and the old rules
+   let the browser break inside a word to make them fit — "Levofloxaci n (As
+   Hemihydrat e)". Words now break only where a word can break, the numeric
+   and status columns get fixed widths so the text columns keep the rest, and
+   the pills never split. */
+.print-like th, .print-like td,
+#report th, #report td,
+#ppReport th, #ppReport td {
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+    hyphens: auto;
+}
+.print-like .kind-pill, #report .kind-pill, #ppReport .kind-pill,
+.print-like .badge, #report .badge, #ppReport .badge { white-space: nowrap; }
+.print-like .kind-line, #report .kind-line, #ppReport .kind-line { margin-top: 2px; }
+
+/* a column heading wraps like anything else here — "BRAND / FORM / STRENGTH"
+   does not fit one portrait column and was being cut off mid-word */
+.print-like th, #report th, #ppReport th { white-space: normal !important; }
+
+/* fixed, narrow columns leave the width to Generic, Brand/Form/Strength and
+   Departments, which are the ones with real text in them */
+.print-like [data-col="rx"], #report [data-col="rx"], #ppReport [data-col="rx"] { width: 6%; text-align: right; white-space: nowrap; }
+.print-like [data-col="qty"], #report [data-col="qty"], #ppReport [data-col="qty"] { width: 10%; text-align: right; white-space: nowrap; }
+/* the heading is one long word; let it shrink rather than split mid-word */
+.print-like thead [data-col="qty"], #report thead [data-col="qty"], #ppReport thead [data-col="qty"],
+.print-like thead [data-col="rx"], #report thead [data-col="rx"], #ppReport thead [data-col="rx"] { font-size: .72em !important; }
+.print-like [data-col="reason"], #report [data-col="reason"], #ppReport [data-col="reason"] { width: 10%; }
+.print-like [data-col="status"], #report [data-col="status"], #ppReport [data-col="status"] { width: 11%; }
+.print-like [data-col="departments"], #report [data-col="departments"], #ppReport [data-col="departments"] { width: 16%; }
+.print-like [data-col="remarks"], #report [data-col="remarks"], #ppReport [data-col="remarks"] { width: 14%; }
+
+/* portrait is tight: shave the padding and let the type go a little smaller */
+.pp-portrait .print-like th, .pp-portrait .print-like td { padding: 4px 5px; }
+.pp-portrait .print-like table.dense td { font-size: .92em !important; }
+.pp-portrait .print-like table.dense th { font-size: .8em !important; }
+/* and the same when the page itself is printed portrait */
+@media print {
+    @page { size: portrait; }
+    #report th, #report td { word-break: normal !important; overflow-wrap: break-word !important; }
+    #report .kind-pill, #report .badge { white-space: nowrap; }
+}
+
+/* ===== the per-drug breakdown =====
+   Same figures as the old two tables, laid out as a dense list that flows
+   into as many columns as the width allows. Eleven wards take two lines
+   rather than eleven rows, and a drug with its whole breakdown now fits
+   beside the next one instead of owning a page. */
+.bd { break-inside: avoid; page-break-inside: avoid; }
+.bd-h {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 12px; font-weight: 700; color: var(--navy);
+    text-transform: uppercase; letter-spacing: .04em;
+    padding-bottom: 3px; margin-bottom: 5px; border-bottom: 1px solid var(--line);
+}
+.bd-tot { margin-left: auto; font-weight: 600; font-size: 11px; color: var(--muted); text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+/* what the two numbers on each line mean, said once per block */
+.bd-leg { font-weight: 500; font-size: 10.5px; color: #9aa6bd; text-transform: none; letter-spacing: 0; }
+.bd-list { columns: 2 180px; column-gap: 26px; column-rule: 1px solid #eef1f6; }
+.bd-i {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    break-inside: avoid; padding: 1.5px 0; font-size: 12.5px;
+    border-bottom: 1px dotted #e7ecf5;
+}
+.bd-n { min-width: 0; white-space: normal; overflow-wrap: break-word; }
+.bd-v { flex: none; display: inline-flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+/* two labelled figures, not a fraction: "3 RX" and the units beside it */
+.bd-rx { min-width: 34px; text-align: right; color: var(--muted); font-weight: 600; }
+.bd-rx i { font-style: normal; font-size: .82em; margin-left: 2px; letter-spacing: .02em; }
+.bd-qty { min-width: 36px; text-align: right; color: var(--navy); font-weight: 700; }
+/* three columns where there is room for them */
+.detail-grid.breakdown { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 26px; }
+.detail-grid.breakdown > * { min-width: 0; }
+.bd, .bd-list, .bd-i { max-width: 100%; }
+@media (min-width: 1500px) { .bd-list { columns: 3; } }
+
+/* the Departments cell: a list, not a paragraph */
+.dept-list { display: inline; }
+.dept { white-space: nowrap; }
+.dept:not(:last-child)::after { content: " · "; color: #b9c4d8; white-space: normal; }
+
+/* ===== printed =====
+   Narrower columns, no dotted rules (they print muddy), and the breakdown
+   kept with the drug it belongs to. */
+.print-like .bd-list, #report .bd-list, #ppReport .bd-list { columns: 2 150px; column-gap: 18px; column-rule: 1px solid #edf1f7; }
+.print-like .bd-i, #report .bd-i, #ppReport .bd-i { padding: 0.5px 0; border-bottom: none; font-size: .92em; }
+.print-like .bd-h, #report .bd-h, #ppReport .bd-h { font-size: .8em; margin-bottom: 3px; }
+.print-like .detail-grid.breakdown, #report .detail-grid.breakdown, #ppReport .detail-grid.breakdown { gap: 6px 18px; }
+.print-like .detail-row td, #report .detail-row td, #ppReport .detail-row td { padding: 4px 8px 8px 16px; }
+.print-like .detail-remarks .dr-row, #report .detail-remarks .dr-row, #ppReport .detail-remarks .dr-row { padding: 0.5px 0; }
+@media print {
+    .bd-i { border-bottom: none; }
+    .drug-group, .bd { break-inside: avoid; page-break-inside: avoid; }
+}
+
+/* ===== real pages =====
+   Chrome has no @page footer, so the report is cut into page-sized pieces in
+   the DOM: each one carries the column headings and a numbered footer, and a
+   drug never parts from its breakdown. The preview shows those same pieces,
+   so what is on screen is what comes out of the printer — and a page number
+   on screen is a page number you can ask the printer for. */
+.pp-sheet.pp-multi { background: transparent; box-shadow: none; padding: 0; display: block; }
+.pp-holder { position: relative; margin: 0 auto 14px; overflow: hidden; }
+.pp-page {
+    position: relative; box-sizing: border-box; background: #fff; color: var(--ink);
+    transform-origin: top left; box-shadow: 0 2px 14px rgba(20, 48, 107, .14);
+    overflow: hidden;
+}
+.pp-body { overflow: hidden; }
+.pp-foot {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 8px 0 0; border-top: 1px solid #e6ebf4;
+    font-size: 10.5px; color: var(--muted);
+}
+.pp-foot .pp-no { font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; }
+/* An absolutely placed box is laid out against the page's padding box, which
+   means padding does not hold it off the paper edge — the margin has to be
+   handed to it, which pageShell does as --pp-pad. */
+.pp-page .pp-foot {
+    left: var(--pp-pad, 0); right: var(--pp-pad, 0); bottom: var(--pp-pad, 0);
+    margin: 0;
+}
+
+/* the page-range boxes in the settings column */
+.pp-range { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pp-range input { width: 74px; padding: 7px 9px; font-size: 13px; }
+.pp-range span { font-size: 12.5px; color: var(--muted); }
+
+/* ===== printing the pages =====
+   Only the built pages print. The on-screen report, the rail and the shell
+   stay out of it, and every page breaks after itself. */
+@media print {
+    body.printing-pages .app,
+    body.printing-pages .rail,
+    body.printing-pages #report { display: none !important; }
+    body.printing-pages #printPages { display: block !important; }
+    body.printing-pages #printPages .pp-page {
+        box-shadow: none; margin: 0; width: 100% !important; height: var(--print-page-h, auto);
+        padding: 0 !important; break-after: page; page-break-after: always; overflow: visible;
+    }
+    body.printing-pages #printPages .pp-page:last-child { break-after: auto; page-break-after: auto; }
+    /* printing: the page area already excludes the @page margin, so the
+       footer only needs its own breathing room above the paper edge */
+    body.printing-pages #printPages .pp-foot { position: fixed; bottom: 0; left: 0; right: 0; padding: 8px 0 4px; }
+}
+#printPages { display: none; }
+
+/* the preview says it is rebuilding — a settings tick on a long report is
+   real work, and a frozen picture with no explanation reads as a crash */
+.pp-stage { position: relative; }
+.pp-stage.is-updating::after {
+    content: "Updating the preview…";
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 80px;
+    background: rgba(233, 237, 244, .72);
+    color: var(--navy); font-size: 13.5px; font-weight: 600;
+    backdrop-filter: blur(1px);
+}
+.pp-stage.is-updating { cursor: progress; }
+
+/* The breakdown block sets `display: grid` further up with the same
+   specificity as `.no-breakdown .breakdown`, so the later rule won and the
+   switch did nothing. The switch is the one that must win. */
+.no-breakdown .detail-grid.breakdown { display: none !important; }
+.no-history .detail-remarks { display: none !important; }
+
+/* ===== the Excel preview =====
+   The same sheet the download holds, drawn the way a spreadsheet draws it:
+   column letters, row numbers, the title merged across the width and the
+   header row frozen under it. Nobody should have to export a 2 MB file to
+   find out what is in it. */
+.xl-sheet { background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 30px rgba(20, 48, 107, .12); }
+.xl-tab {
+    display: inline-block; margin: 8px 8px 0; padding: 5px 14px;
+    background: #f2f5fa; border: 1px solid var(--line); border-bottom: none;
+    border-radius: 7px 7px 0 0; font-size: 12px; font-weight: 700; color: var(--navy);
+}
+.xl-grid { overflow: auto; max-height: calc(100vh - 220px); border-top: 1px solid var(--line); }
+table.xl { border-collapse: separate; border-spacing: 0; font-size: 12px; table-layout: fixed; }
+table.xl th, table.xl td {
+    border-right: 1px solid #e3e9f3; border-bottom: 1px solid #e3e9f3;
+    padding: 3px 7px; vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* the grey gutter and the column letters, as in the application itself */
+table.xl thead th, table.xl .xl-rn {
+    position: sticky; background: #f4f6fa; color: #65718a;
+    font-size: 11px; font-weight: 600; text-align: center;
+}
+table.xl thead th { top: 0; z-index: 2; }
+table.xl .xl-rn { left: 0; z-index: 1; text-align: right; }
+table.xl .xl-corner { left: 0; top: 0; z-index: 3; }
+col.xl-gutter { width: 42px; }
+/* the cell styles, matching the workbook's own */
+.xl-title { font-size: 15px; font-weight: 700; color: var(--navy); }
+.xl-sub { color: var(--muted); font-size: 11.5px; }
+.xl-head { background: var(--navy); color: #fff; font-weight: 700; }
+.xl-group { font-weight: 700; color: var(--navy); background: #f7f9fd; }
+.xl-subhead { font-size: 10.5px; font-weight: 700; color: #65718a; letter-spacing: .03em; border-bottom: 1px solid #c9d4e6 !important; }
+.xl-sub2 { color: var(--ink); }
+.xl-num { text-align: right; font-variant-numeric: tabular-nums; }
+.xl-numb { text-align: right; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; }
+.xl-muted { color: var(--muted); }
+.xl-more, .xl-empty { padding: 10px 14px; font-size: 12px; color: var(--muted); }
+
+/* Excel mode keeps every setting the PDF has — paper, orientation, text
+   size, margins and the page range all go into the workbook's page set-up —
+   so only the primary button changes. */
+.pp.mode-excel #ppPrint { display: none; }
+.pp:not(.mode-excel) #ppExcel { display: none; }
+.pp.mode-excel #ppExcel { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+/* .pp-sheet.pp-multi sets display:block, which outranks the UA rule for the
+   hidden attribute — the paper preview stayed on top of the Excel grid. */
+.pp-stage > [hidden] { display: none !important; }
+
+/* ===== printed breakdown =====
+   CSS multi-column flows top-to-bottom inside each column, so there is no
+   such thing as "the next line" — which a paginator has to know to cut a
+   list between pages. A grid flows left-to-right, one line at a time, so
+   each line can be measured and a drug's list can carry on to the next page
+   instead of reserving a page of its own. */
+.print-like .detail-grid.breakdown,
+#report .detail-grid.breakdown,
+#ppReport .detail-grid.breakdown { display: block !important; }
+.print-like .bd, #report .bd, #ppReport .bd { margin-bottom: 5px; break-inside: auto; page-break-inside: auto; }
+.print-like .bd-list, #report .bd-list, #ppReport .bd-list {
+    columns: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 20px; column-rule: none;
+}
+.print-like .bd-i, #report .bd-i, #ppReport .bd-i {
+    padding: 0; border-bottom: none; font-size: .86em; line-height: 1.3; break-inside: avoid;
+}
+.print-like .bd-h, #report .bd-h, #ppReport .bd-h {
+    font-size: .76em; margin-bottom: 2px; padding-bottom: 1px;
+}
+.print-like .detail-remarks, #report .detail-remarks, #ppReport .detail-remarks { margin-top: 4px; }
+.print-like .detail-remarks .dr-row, #report .detail-remarks .dr-row, #ppReport .detail-remarks .dr-row {
+    padding: 0; font-size: .86em; line-height: 1.3;
+}
+.print-like .detail-row td, #report .detail-row td, #ppReport .detail-row td { padding: 3px 8px 6px 14px; }
+
+/* a drug carried over from the previous page says so, in one line */
+.cont-row > td {
+    padding: 3px 8px !important; font-size: .88em; font-weight: 700; color: var(--navy);
+    background: #f4f7fc; border-bottom: 1px solid var(--line);
+}
+/* a group may now be split deliberately, so the old keep-together rule has
+   to go or the browser fights the planner */
+.print-like .drug-group, #ppReport .drug-group { break-inside: auto; page-break-inside: auto; }
+
+
+/* where the sheet will break on paper, drawn in the preview */
+.xl-break > td {
+    background: #eef2f9; border-top: 2px dashed #9fb3d4 !important;
+    text-align: center; padding: 2px 0 !important;
+}
+.xl-break span { font-size: 10.5px; font-weight: 700; color: #51608a; letter-spacing: .03em; }
+.xl-break.xl-out > td { background: #f6f7f9; opacity: .55; }
+.xl-break.xl-out span::after { content: " — not printing"; font-weight: 500; }
+
+/* Fixed column widths on paper. With automatic layout a column's width
+   depends on every row in the table: the planner measures all the drugs in
+   one table, each printed page holds two or three, so the page's columns
+   came out different, wrapped differently, and ran up to 36px past the
+   bottom — clipped. Fixed layout takes the widths from the heading row
+   alone, so the measured page and the printed page are the same shape. */
+.print-like table.dense, #ppReport table.dense { table-layout: fixed; width: 100%; }
+.print-like table.dense thead th:nth-child(1), #ppReport table.dense thead th:nth-child(1) { width: 19%; }
+.print-like table.dense thead th:nth-child(2), #ppReport table.dense thead th:nth-child(2) { width: 19%; }
+.print-like table.dense thead th[data-col="reason"], #ppReport table.dense thead th[data-col="reason"] { width: 9%; }
+.print-like table.dense thead th[data-col="rx"], #ppReport table.dense thead th[data-col="rx"] { width: 5%; }
+.print-like table.dense thead th[data-col="qty"], #ppReport table.dense thead th[data-col="qty"] { width: 11%; }
+.print-like table.dense thead th[data-col="departments"], #ppReport table.dense thead th[data-col="departments"] { width: 17%; }
+.print-like table.dense thead th[data-col="status"], #ppReport table.dense thead th[data-col="status"] { width: 10%; }
+.print-like table.dense thead th[data-col="remarks"], #ppReport table.dense thead th[data-col="remarks"] { width: 10%; }
+.print-like table.dense td, #ppReport table.dense td { overflow-wrap: anywhere; }
+
+/* headings wrap between words, never inside one ("# PRESCRIBE / D") */
+.print-like table.dense thead th { overflow-wrap: normal !important; word-break: keep-all !important; hyphens: none !important; }

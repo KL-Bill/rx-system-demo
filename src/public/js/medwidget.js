@@ -222,6 +222,12 @@
                 b.style.display = document.activeElement === el(field) ? 'block' : 'none';
                 return;
             }
+            // the list says it is searching, so a slow network is visible
+            // where the nurse is already looking
+            if (document.activeElement === el(field)) {
+                b.innerHTML = '<div class="opt hint"><span class="spin dark"></span>Searching…</div>';
+                b.style.display = 'block';
+            }
             let opts;
             try { opts = await fetchOptions(field, s, aborts); }
             catch { return; }                                   // aborted or offline: leave the list alone
@@ -466,6 +472,10 @@
             }
             if (abort) abort.abort();
             abort = new AbortController();
+            if (document.activeElement === input) {
+                list.innerHTML = '<div class="opt hint"><span class="spin dark"></span>Searching…</div>';
+                list.style.display = 'block';
+            }
             let rows;
             try {
                 const res = await api(`/api/rx/supplies?${new URLSearchParams({ q })}`, { signal: abort.signal });

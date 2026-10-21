@@ -436,8 +436,17 @@ const addPrescription = async (record) => {
     return { id, stationId, department, createdAt, ...payload };
 };
 
-const getPrescriptions = async () => {
-    const { rows } = await pool.query('SELECT id, station_id, department, created_at, payload FROM prescriptions WHERE deleted_at IS NULL');
+// Every live prescription, or only those in a window. The window matters:
+// Review, Reports and the log all work inside a period, and without it a
+// year-old database ships every row and its payload on each page load just to
+// throw most of them away in JavaScript. idx_prescriptions_live covers it.
+const getPrescriptions = async ({ from, to } = {}) => {
+    const where = ['deleted_at IS NULL'], params = [];
+    if (from != null) { params.push(from); where.push(`created_at >= $${params.length}`); }
+    if (to != null) { params.push(to); where.push(`created_at <= $${params.length}`); }
+    const { rows } = await pool.query(
+        `SELECT id, station_id, department, created_at, payload FROM prescriptions
+          WHERE ${where.join(' AND ')} ORDER BY created_at`, params);
     return rows.map((r) => ({
         id: r.id, stationId: r.station_id, department: r.department,
         createdAt: toNum(r.created_at), ...r.payload,
@@ -561,6 +570,15 @@ const getStatusEvents = async (reason, drugKey) => {
            FROM review_status_events WHERE reason = $1 AND drug_key = $2 ORDER BY at`,
         [reason, drugKey]);
     return rows.map((r) => ({ ...r, at: toNum(r.at) }));
+};
+
+// Every status in one query. demand.aggregate() used to ask per drug, which
+// is one round trip per row on a page that shows hundreds.
+const getAllStatuses = async () => {
+    const { rows } = await pool.query(
+        `SELECT reason, drug_key AS "drugKey", status, status_date AS "statusDate", actor, authorized_by AS "authorizedBy"
+           FROM review_status`);
+    return rows.map((r) => ({ ...r, statusDate: toNum(r.statusDate) }));
 };
 
 // ---------- review remarks ----------
@@ -1077,7 +1095,7 @@ module.exports = {
     addPrescription, getPrescriptions, getPrescriptionsByIds,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
-    addRemark, getRemarks, getAllRemarks, getRemark, updateRemark, getRemarkEdits, getStatusEvents, findSimilarProducts,
+    getAllStatuses, addRemark, getRemarks, getAllRemarks, getRemark, updateRemark, getRemarkEdits, getStatusEvents, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
     claimImport, searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,

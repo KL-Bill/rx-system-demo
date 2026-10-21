@@ -204,6 +204,7 @@
 
     // ---------- system log ----------
     async function loadLogs() {
+        if ($('logTbl')) $('logTbl').innerHTML = loadingRows(6, 'Loading the log…');
         const p = new URLSearchParams({ limit: PAGE, offset: logOffset });
         if ($('type').value) p.set('type', $('type').value);
         if ($('q').value.trim()) p.set('q', $('q').value.trim());
@@ -485,6 +486,7 @@
     };
 
     async function loadBackups() {
+        if ($('backupTbl')) $('backupTbl').innerHTML = loadingRows(5, 'Loading backups…');
         const res = await api('/api/it/backups');
         if (!res.ok) return;
         const { backups, lastOkAt, stale } = res.data;

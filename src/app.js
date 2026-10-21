@@ -4,7 +4,9 @@ const cookieParser = require('cookie-parser');
 
 const app = express();
 
-app.use(express.json());
+// the Excel export posts the list of drugs on screen — a year's report is
+// a few hundred KB of keys, past express's 100 KB default
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 

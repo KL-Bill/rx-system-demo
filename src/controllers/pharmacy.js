@@ -40,14 +40,14 @@ const statusBulk = async (req, res) => {
 
 const prescriptions = async (req, res) => {
     try {
-        const { from, to, department, reason, q } = req.query;
+        const { from, to, department, reason, q, limit, offset } = req.query;
         return res.json({
             success: true,
-            prescriptions: await pharmacy.listPrescriptions({
-                department, reason, q,
+            ...(await pharmacy.listPrescriptions({
+                department, reason, q, limit, offset,
                 from: from ? new Date(from + 'T00:00:00').getTime() : undefined,
                 to: to ? new Date(to + 'T23:59:59').getTime() : undefined,
-            }),
+            })),
         });
     } catch (err) { return handle(res, err); }
 };

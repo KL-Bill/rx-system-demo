@@ -1,15 +1,81 @@
+// ---------- the progress bar ----------
+// Every call below goes through api(), so one bar at the top of the window
+// covers the whole system: a page that is fetching never looks frozen. It
+// waits 180 ms before appearing — anything faster than that reads as instant
+// and a flash of bar is worse than none — and counts requests, so it only
+// leaves when the last one is done.
+//
+// Autocomplete keystrokes pass quiet:true: a bar blinking on every letter is
+// noise, and those boxes say "Searching…" in the list itself.
+let busyCount = 0, busyTimer = null;
+function busyBar() {
+    let el = document.getElementById('__busy');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = '__busy';
+        el.className = 'busybar';
+        el.innerHTML = '<div class="busybar-in"></div>';
+        document.body.appendChild(el);
+    }
+    return el;
+}
+function busyStart() {
+    busyCount += 1;
+    if (busyCount === 1 && !busyTimer) {
+        busyTimer = setTimeout(() => { busyBar().classList.add('on'); document.body.classList.add('is-busy'); }, 180);
+    }
+}
+function busyEnd() {
+    busyCount = Math.max(0, busyCount - 1);
+    if (busyCount) return;
+    clearTimeout(busyTimer); busyTimer = null;
+    const el = document.getElementById('__busy');
+    if (el) el.classList.remove('on');
+    document.body.classList.remove('is-busy');
+}
+// for work that is not a fetch (building a report, rendering a big table)
+async function withBusy(fn) {
+    busyStart();
+    try { return await fn(); } finally { busyEnd(); }
+}
+
 // tiny fetch wrapper shared by all pages
 async function api(path, opts = {}) {
-    const res = await fetch(path, {
-        method: opts.method || (opts.body ? 'POST' : 'GET'),
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
-        signal: opts.signal,        // callers that supersede their own requests (autocomplete) pass one
-    });
-    let data = {};
-    try { data = await res.json(); } catch { /* no body */ }
-    return { ok: res.ok, status: res.status, data };
+    const quiet = !!opts.quiet || !!opts.signal;
+    if (!quiet) busyStart();
+    try {
+        const res = await fetch(path, {
+            method: opts.method || (opts.body ? 'POST' : 'GET'),
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: opts.body ? JSON.stringify(opts.body) : undefined,
+            signal: opts.signal,        // callers that supersede their own requests (autocomplete) pass one
+        });
+        let data = {};
+        try { data = await res.json(); } catch { /* no body */ }
+        return { ok: res.ok, status: res.status, data };
+    } finally {
+        if (!quiet) busyEnd();
+    }
+}
+
+// A button that says what it is doing while it does it, and cannot be
+// double-clicked into sending the same thing twice.
+//   await withButton(btn, 'Saving…', () => api(...))
+async function withButton(btn, label, fn) {
+    if (!btn) return fn();
+    const was = btn.innerHTML, wasDisabled = btn.disabled;
+    btn.disabled = true;
+    btn.classList.add('is-working');
+    if (label) btn.innerHTML = `<span class="spin"></span>${escapeHtml(label)}`;
+    try { return await fn(); } finally {
+        btn.innerHTML = was; btn.disabled = wasDisabled; btn.classList.remove('is-working');
+    }
+}
+
+// the placeholder a table shows while its rows are on the way
+function loadingRows(colspan = 6, text = 'Loading…') {
+    return `<tr class="loading-row"><td colspan="${colspan}"><span class="spin dark"></span>${escapeHtml(text)}</td></tr>`;
 }
 
 function escapeHtml(s) {

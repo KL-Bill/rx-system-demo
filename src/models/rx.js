@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../_db/db_functions');
+const demand = require('./demand');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -119,6 +120,8 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
         patient: patient || '', address: address || '', age: age || '', sex: sex || '',
         items: resolved,
     });
+
+    demand.forgetItems();       // the pharmacy screens must see it on their next look
 
     // the kiosk keeps this receipt; it is the only way back to this prescription from the nurse page
     return { station, items: resolved, id: saved.id, createdAt: saved.createdAt, receipt: receiptFor(saved.id) };

@@ -25,7 +25,7 @@
                 <button id="genBtn" class="sm">Generate</button>
             </div>
             <div class="tb-right">
-                <button id="csvBtn" class="ghost sm">Export CSV</button>
+                <button id="csvBtn" class="ghost sm" title="Excel workbook. Shift+click for a plain CSV.">Export Excel</button>
                 <button id="printBtn" class="ghost sm">Print / PDF</button>
             </div>
         </div>
@@ -65,7 +65,14 @@
         <div class="pp">
             <aside class="pp-side">
                 <h3 class="dlg-title" id="ppTitle">Print / PDF</h3>
-                <p class="sub">What you see on the right is the page. Settings are remembered on this computer.</p>
+                <p class="sub" id="ppSub">What you see on the right is the page. Settings are remembered on this computer.</p>
+
+                <div class="pp-scroll">
+                <label>Output</label>
+                <div class="seg" id="ppMode">
+                    <button type="button" data-v="pdf" class="active">PDF</button>
+                    <button type="button" data-v="excel">Excel</button>
+                </div>
 
                 <label for="ppPaper">Paper</label>
                 <select id="ppPaper">
@@ -91,6 +98,7 @@
                     <option value="0.9">Wide</option>
                 </select>
 
+
                 <label>Columns</label>
                 <div class="pp-cols" id="ppCols">
                     <label><input type="checkbox" data-col="reason" checked> Reason</label>
@@ -100,14 +108,24 @@
                     <label><input type="checkbox" data-col="status" checked> Status</label>
                     <label><input type="checkbox" data-col="remarks" checked> Remarks</label>
                 </div>
+                <label>Pages to print</label>
+                <div class="pp-range">
+                    <input id="ppFrom" type="number" min="1" placeholder="1"><span>to</span>
+                    <input id="ppTo" type="number" min="1" placeholder="all">
+                    <button class="ghost sm" id="ppAllPages" type="button">All</button>
+                </div>
+
                 <label class="pp-check"><input type="checkbox" id="ppBreakdown" checked> Include per-department / per-doctor breakdown</label>
                 <label class="pp-check"><input type="checkbox" id="ppHistory" checked> Include full remark history</label>
+                </div>
 
                 <div class="pp-actions">
-                    <button class="ghost" id="ppReset" type="button">Reset</button>
-                    <span style="flex:1"></span>
-                    <button class="ghost" id="ppCancel" type="button">Close</button>
-                    <button id="ppPrint" type="button">Print</button>
+                    <button id="ppPrint" type="button">Print / PDF</button>
+                    <button class="ghost" id="ppExcel" type="button">Export Excel</button>
+                    <div class="pp-actions-minor">
+                        <button class="ghost sm" id="ppReset" type="button">Reset settings</button>
+                        <button class="ghost sm" id="ppCancel" type="button">Close</button>
+                    </div>
                 </div>
             </aside>
             <div class="pp-stage" id="ppStage">

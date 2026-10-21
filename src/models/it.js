@@ -3,6 +3,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const bcrypt = require('bcryptjs');
 const db = require('../_db/db_functions');
+const demand = require('./demand');
 const { pool, newId } = require('../_db/store');
 const { version } = require('../../package.json');
 
@@ -292,12 +293,14 @@ const deletePrescriptions = async ({ ids, from, to, password, confirm }, actor) 
         : await db.deletePrescriptionsByRange({ from: dayStart(from), to: dayEnd(to) }, actor.name);
 
     return { deleted, mode: byIds ? 'selection' : 'range', from: from || null, to: to || null };
+    demand.forgetItems();
 };
 
 // back from the Deleted view; no password — undoing a delete is the safe direction
 const restorePrescriptions = async ({ ids }) => {
     if (!Array.isArray(ids) || !ids.length) throw httpError(400, 'Select the prescriptions to restore');
     return { restored: await db.restorePrescriptionsByIds(ids) };
+    demand.forgetItems();
 };
 
 const health = async () => {

@@ -13,15 +13,16 @@ const authorizeMutation = async (actor, authorizerPassword) => {
 };
 
 // from/to: the Review page's Period — only prescriptions written in it are counted
-const getReview = ({ reason, department, from, to } = {}) => demand.aggregate({ reason, department, from, to });
+const getReview = ({ reason, department, from, to } = {}) => demand.aggregate({ reason, department, from, to, summary: true });
 
-// full prescription log for auditing (newest first)
-const listPrescriptions = async ({ from, to, department, reason, q } = {}) => {
+// A page of the prescription log, newest first, with the figures the screen
+// shows across the top. It used to answer with every matching prescription
+// and its whole payload — 20 MB on a year of data, every time somebody opened
+// the page — so the rows are paged and only the counts cover the whole match.
+const listPrescriptions = async ({ from, to, department, reason, q, limit = 100, offset = 0 } = {}) => {
     const needle = (q || '').trim().toLowerCase();
-    return (await db.getPrescriptions())
+    const matched = (await db.getPrescriptions({ from, to }))
         .filter((rx) => {
-            if (from != null && rx.createdAt < from) return false;
-            if (to != null && rx.createdAt > to) return false;
             if (department && department !== 'all' && rx.department !== department) return false;
             if (reason && reason !== 'all' && !rx.items.some((i) => i.reason === reason)) return false;
             if (needle) {
@@ -31,8 +32,21 @@ const listPrescriptions = async ({ from, to, department, reason, q } = {}) => {
             }
             return true;
         })
-        .slice()
         .sort((a, b) => b.createdAt - a.createdAt);
+
+    const totals = matched.reduce((acc, rx) => {
+        acc.meds += rx.items.length;
+        acc.anomalies += rx.items.filter((i) => i.reason === 'normal').length;
+        return acc;
+    }, { meds: 0, anomalies: 0 });
+
+    const start = Math.max(0, Number(offset) || 0);
+    const size = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    return {
+        prescriptions: matched.slice(start, start + size),
+        total: matched.length, meds: totals.meds, anomalies: totals.anomalies,
+        limit: size, offset: start,
+    };
 };
 const getDetail = (key, reason) => demand.detail(key, reason);
 const getAudit = () => db.getAudit();

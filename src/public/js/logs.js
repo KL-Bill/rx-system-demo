@@ -24,25 +24,46 @@
         const o = document.createElement('option'); o.value = d; o.textContent = d; $('department').appendChild(o);
     });
 
+    const PAGE = 100;
+    let offset = 0, total = 0;
+
     // ---------- data ----------
     async function load() {
+        const body = $('tbl');
+        if (body) body.innerHTML = loadingRows(6, 'Loading prescriptions…');
         const p = new URLSearchParams();
         p.set('department', $('department').value);
         p.set('reason', $('reason').value);
         if ($('from').value) p.set('from', $('from').value);
         if ($('to').value) p.set('to', $('to').value);
         if ($('q').value.trim()) p.set('q', $('q').value.trim());
+        p.set('limit', String(PAGE));
+        p.set('offset', String(offset));
         const res = await api('/api/pharmacy/prescriptions?' + p.toString());
         if (!res.ok) { window.location.href = '/login'; return; }
         list = res.data.prescriptions;
+        total = res.data.total || 0;
 
-        $('count').textContent = `${list.length} prescription${list.length === 1 ? '' : 's'}`;
-        $('empty').style.display = list.length ? 'none' : 'block';
-        $('kp-rx').textContent = list.length;
-        $('kp-meds').textContent = list.reduce((s, x) => s + x.items.length, 0);
-        $('kp-anom').textContent = list.reduce((s, x) => s + x.items.filter((i) => i.reason === 'normal').length, 0);
+        // the counters describe everything that matches, not this page
+        $('count').textContent = `${total} prescription${total === 1 ? '' : 's'}`;
+        $('empty').style.display = total ? 'none' : 'block';
+        $('kp-rx').textContent = total;
+        $('kp-meds').textContent = res.data.meds || 0;
+        $('kp-anom').textContent = res.data.anomalies || 0;
         showDetail(false);
         render();
+        renderPager();
+    }
+
+    // The log is paged: a year of prescriptions is far too much to send, and
+    // nobody reads 20,000 rows — they search, or they page back.
+    function renderPager() {
+        const from = total ? offset + 1 : 0;
+        const to = Math.min(offset + PAGE, total);
+        $('pgInfo').textContent = total ? `${from}–${to} of ${total}` : '';
+        $('pgPrev').disabled = offset === 0;
+        $('pgNext').disabled = offset + PAGE >= total;
+        $('rxPager').style.display = total > PAGE ? '' : 'none';
     }
 
     function render() {
@@ -61,6 +82,11 @@
             tr.onclick = () => openDetail(list[Number(tr.dataset.i)], tr);
         });
     }
+
+    $('pgPrev').onclick = () => { offset = Math.max(0, offset - PAGE); load(); };
+    $('pgNext').onclick = () => { offset += PAGE; load(); };
+    // any change of filter starts again at the newest page
+    const reload = () => { offset = 0; load(); };
 
     // ---------- detail drawer (the actual slip) ----------
     function showDetail(on) {
@@ -158,14 +184,14 @@
     $('filtersBtn').addEventListener('click', () => showDetail(false));
 
     // ---------- filters ----------
-    ['department', 'reason', 'from', 'to'].forEach((id) => { $(id).onchange = load; });
+    ['department', 'reason', 'from', 'to'].forEach((id) => { $(id).onchange = reload; });
     let t = null;
-    $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
-    $('refreshBtn').onclick = load;
+    $('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(reload, 250); });
+    $('refreshBtn').onclick = reload;
     $('clearFilters').onclick = () => {
         $('department').value = 'all'; $('reason').value = 'all';
         periodDr.apply('all'); $('q').value = '';
-        load();
+        reload();
     };
 
     await load();
