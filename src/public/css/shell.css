@@ -396,3 +396,5 @@ table.dense th { white-space: nowrap; }
 }
 .remark .top .icon-btn:hover { background: var(--navy-soft); color: var(--navy); }
 .remark .top .icon-btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 1px; }
+.remark .top .icon-btn.rmk-del { margin-left: 0; }
+.remark .top .icon-btn.rmk-del:hover { background: #fdecec; color: #b42318; }

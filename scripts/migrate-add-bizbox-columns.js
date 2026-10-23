@@ -152,6 +152,12 @@ async function main() {
         `);
         await client.query('CREATE INDEX IF NOT EXISTS idx_review_remark_edits_remark ON review_remark_edits (remark_id, at DESC)');
 
+        // 9. the pharmacy head can remove a remark. It is hidden, not erased:
+        //    the row stays with who removed it and when, so the timeline and
+        //    the audit log can still say what it read.
+        await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS deleted_at BIGINT');
+        await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS deleted_by TEXT');
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS catalog_import_exclusions (
               description_key TEXT PRIMARY KEY,

@@ -390,10 +390,10 @@
     // The drawer shows the latest remark only — a long-open row can collect
     // dozens — and "View all" opens the whole history in a modal. Reports
     // keeps the full list inline: there it is the audit copy.
-    // opts.editable: show the pharmacy head's Correct button (history window only)
+    // opts.editable: show the pharmacy head's correct / remove icons
     const remarkCard = (r, opts = {}) => `
             <div class="remark" data-rmk-id="${escapeHtml(r.id || '')}">
-                <div class="top">${remarkBadge(r.remark)}<span class="who">${escapeHtml(r.actor || '')}${r.authorizedBy && r.authorizedBy !== r.actor ? ` · auth. ${escapeHtml(r.authorizedBy)}` : ''} · ${fmtDT(r.at)}</span>${opts.editable && isAdmin ? `<button type="button" class="icon-btn rmk-edit" data-edit-rmk="${escapeHtml(r.id)}" title="Correct this remark" aria-label="Correct this remark"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` : ''}</div>
+                <div class="top">${remarkBadge(r.remark)}<span class="who">${escapeHtml(r.actor || '')}${r.authorizedBy && r.authorizedBy !== r.actor ? ` · auth. ${escapeHtml(r.authorizedBy)}` : ''} · ${fmtDT(r.at)}</span>${opts.editable && isAdmin ? `<button type="button" class="icon-btn rmk-edit" data-edit-rmk="${escapeHtml(r.id)}" title="Correct this remark" aria-label="Correct this remark"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="icon-btn rmk-del" data-del-rmk="${escapeHtml(r.id)}" title="Remove this remark" aria-label="Remove this remark"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>` : ''}</div>
                 ${r.note ? `<div class="note">${escapeHtml(r.note)}</div>` : ''}
                 ${r.editedAt ? `<div class="edited">Corrected by ${escapeHtml(r.editedBy || '')} · ${fmtDT(r.editedAt)}</div>` : ''}
             </div>`;
@@ -426,6 +426,62 @@
         host.querySelectorAll('[data-edit-rmk]').forEach((b) => {
             b.onclick = () => openRemarkEdit((list || []).find((x) => x.id === b.dataset.editRmk), b.closest('.remark'));
         });
+        host.querySelectorAll('[data-del-rmk]').forEach((b) => {
+            b.onclick = () => removeRemark((list || []).find((x) => x.id === b.dataset.delRmk), b);
+        });
+    }
+
+    // after a correction or a removal: the row, the panel and the history
+    // window all have to agree. load() replaces the row objects with fresh
+    // table rows, which carry no timeline — so put the detail back on the one
+    // we are showing.
+    async function afterRemarkChange(res) {
+        const was = current && current.row ? { key: current.row.key, reason: current.row.reason } : null;
+        // the drawer first, from the fresh detail the server sent back — the
+        // table's reload below takes seconds on a big review
+        if (was && res.data.detail) {
+            Object.assign(current.row, res.data.detail);
+            renderRemarks(current.row);
+            renderTimeline(current.row);
+            if (rmkDlg.open) {
+                if ((current.row.remarks || []).length) openRemarkHistory(current.row);
+                else rmkDlg.close();
+            }
+        }
+        await load();
+        if (!was) return;
+        const fresh = allRows().find((r) => r.key === was.key && r.reason === was.reason) || current.row;
+        if (res.data.detail) Object.assign(fresh, res.data.detail);
+        current.row = fresh;
+        renderRemarks(fresh);
+        renderTimeline(fresh);
+        if (rmkDlg.open) {
+            if ((fresh.remarks || []).length) openRemarkHistory(fresh);
+            else rmkDlg.close();
+        }
+    }
+
+    // Removing a remark — the pharmacy head only. It leaves the review, the
+    // reports and the exports; the timeline and the audit log keep it.
+    async function removeRemark(rec, btn) {
+        if (!rec) return;
+        const label = PRESETS[rec.remark] || rec.remark;
+        const go = await showDialog({
+            kind: 'danger',
+            title: 'Remove this remark?',
+            message: `"${label}${rec.note ? `: ${rec.note}` : ''}" by ${rec.actor || 'unknown'} will no longer show in the review, the reports or the exports. The drug's status does not change. The timeline and the audit log keep a record of it.`,
+            actions: [{ label: 'Remove remark', value: true, variant: 'danger' }, { label: 'Keep it', value: false, variant: 'ghost', cancel: true }],
+        });
+        if (!go) return;
+        const res = await withButton(btn, '', () => api(`/api/pharmacy/remarks/${encodeURIComponent(rec.id)}`, {
+            method: 'DELETE',
+            body: { drug: { label: current && current.row ? current.row.label : '' } },
+        }));
+        if (!res.ok) {
+            await showDialog({ kind: 'danger', title: 'Could not remove the remark', message: res.data.message || 'Try again.' });
+            return;
+        }
+        await afterRemarkChange(res);
     }
 
     function openRemarkEdit(rec, card) {
@@ -445,26 +501,18 @@
                 </div>
             </div>`);
         if (pencil) pencil.style.display = 'none';
+        const trash = card.querySelector('.rmk-del');
+        if (trash) trash.style.display = 'none';
         const form = card.querySelector('.rmk-edit-form');
         const err = form.querySelector('.re-err');
-        form.querySelector('.re-cancel').onclick = () => { form.remove(); if (pencil) pencil.style.display = ''; };
+        form.querySelector('.re-cancel').onclick = () => { form.remove(); if (pencil) pencil.style.display = ''; if (trash) trash.style.display = ''; };
         form.querySelector('.re-save').onclick = async () => {
             const res = await withButton(form.querySelector('.re-save'), 'Saving…', () => api(`/api/pharmacy/remarks/${encodeURIComponent(rec.id)}`, {
                 body: { remark: form.querySelector('.re-preset').value, note: form.querySelector('.re-note').value, drug: { label: current && current.row ? current.row.label : '' } },
             }));
             if (!res.ok) { err.textContent = res.data.message || 'Could not save the correction'; err.classList.add('show'); return; }
-            // the row, the panel and the window all have to agree afterwards.
-            // load() replaces the row objects with fresh table rows, which carry
-            // no timeline — so put the detail back on the one we are showing.
-            const was = current && current.row ? { key: current.row.key, reason: current.row.reason } : null;
-            await load();
-            if (!was) { form.remove(); if (pencil) pencil.style.display = ''; return; }
-            const fresh = allRows().find((r) => r.key === was.key && r.reason === was.reason) || current.row;
-            if (res.data.detail) Object.assign(fresh, res.data.detail);
-            current.row = fresh;
-            renderRemarks(fresh);
-            renderTimeline(fresh);
-            if (rmkDlg.open) openRemarkHistory(fresh);
+            if (!current || !current.row) { form.remove(); if (pencil) pencil.style.display = ''; }
+            await afterRemarkChange(res);
         };
         form.querySelector('.re-preset').focus();
     }

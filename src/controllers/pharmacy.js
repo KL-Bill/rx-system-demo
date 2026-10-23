@@ -69,6 +69,16 @@ const addRemark = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
+const removeRemark = async (req, res) => {
+    try {
+        return res.json({ success: true, ...(await pharmacy.removeRemark({ ...(req.body || {}), id: req.params.id }, req.user)) });
+    } catch (err) {
+        if (err.status) return res.status(err.status).json({ success: false, message: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Could not remove the remark' });
+    }
+};
+
 const editRemark = async (req, res) => {
     try {
         return res.json({ success: true, ...(await pharmacy.editRemark({ ...(req.body || {}), id: req.params.id }, req.user)) });
@@ -85,4 +95,4 @@ const addCatalog = async (req, res) => {
     catch (err) { return handle(res, err); }
 };
 
-module.exports = { review, detail, status, statusBulk, audit, prescriptions, remarks, addRemark, editRemark, similar, addCatalog };
+module.exports = { review, detail, status, statusBulk, audit, prescriptions, remarks, addRemark, editRemark, removeRemark, similar, addCatalog };

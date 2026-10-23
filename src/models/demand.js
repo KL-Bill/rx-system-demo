@@ -198,6 +198,13 @@ async function buildTimeline(reason, key, rows, remarks) {
             detail: `was "${was}" — now "${now}"${e.actor ? ` · ${e.actor}` : ''}`,
         });
     }
+    for (const r of await db.getRemovedRemarks(reason, key)) {
+        out.push({
+            at: r.deletedAt, type: 'edit',
+            text: 'Remark removed',
+            detail: `"${r.remark.replace(/_/g, ' ')}${r.note ? `: ${r.note}` : ''}" by ${r.actor || '—'}${r.deletedBy ? ` · removed by ${r.deletedBy}` : ''}`,
+        });
+    }
     for (const e of await db.getStatusEvents(reason, key)) {
         out.push({
             at: e.at, type: 'status', status: e.status,

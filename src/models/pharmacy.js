@@ -169,7 +169,7 @@ const editRemark = async ({ id, remark, note, drug }, actor) => {
     note = String(note || '').trim().slice(0, 500);
 
     const existing = await db.getRemark(id);
-    if (!existing) throw httpError(404, 'That remark no longer exists.');
+    if (!existing || existing.deletedAt) throw httpError(404, 'That remark no longer exists.');
     if (existing.remark === remark && (existing.note || '') === note) {
         return { remark: existing, changed: false, detail: await demand.detail(existing.drugKey, existing.reason) };
     }
@@ -183,6 +183,26 @@ const editRemark = async ({ id, remark, note, drug }, actor) => {
         actor: actor.name, authorizedBy: actor.name,
     });
     return { remark: after, changed: true, statusUnchanged: before.remark !== after.remark, detail: await demand.detail(existing.drugKey, existing.reason) };
+};
+
+// Remove a remark — the pharmacy head only, for one that should never have
+// been written (wrong drug, a duplicate). It disappears from the review, the
+// reports and the exports; the row itself is kept with who removed it and
+// when, the timeline says "Remark removed" with what it read, and the audit
+// log records it. Like a correction, it never touches the row's status.
+const removeRemark = async ({ id, drug }, actor) => {
+    if (actor.role !== 'admin') throw httpError(403, 'Only the pharmacy head can remove a remark.');
+    if (!id) throw httpError(400, 'Missing remark');
+    const before = await db.removeRemark(id, actor.name);
+    if (!before) throw httpError(404, 'That remark no longer exists.');
+    await db.addAudit({
+        action: 'remark_remove',
+        drug: (drug && drug.label) || before.drugKey,
+        reason: before.reason,
+        status: `${before.remark}${before.note ? `: ${before.note}` : ''} (written by ${before.actor || 'unknown'})`,
+        actor: actor.name, authorizedBy: actor.name,
+    });
+    return { removed: before, detail: await demand.detail(before.drugKey, before.reason) };
 };
 
 // ----- catalog (admin) -----
@@ -259,5 +279,5 @@ const addCatalogSupply = async (body, actor) => {
 
 module.exports = {
     getReview, getDetail, setStatus, setStatusBulk, getAudit, listPrescriptions,
-    REMARKS, listRemarks, addRemark, editRemark, similarProducts, addCatalogProduct, addCatalogSupply,
+    REMARKS, listRemarks, addRemark, editRemark, removeRemark, similarProducts, addCatalogProduct, addCatalogSupply,
 };

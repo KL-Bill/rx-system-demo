@@ -596,6 +596,7 @@ const mapRemark = (r) => ({
     id: r.id, reason: r.reason, drugKey: r.drug_key, remark: r.remark, note: r.note,
     actor: r.actor, authorizedBy: r.authorized_by, at: toNum(r.at),
     editedAt: toNum(r.edited_at), editedBy: r.edited_by,
+    deletedAt: toNum(r.deleted_at), deletedBy: r.deleted_by,
 });
 
 const getRemark = async (id) => {
@@ -632,13 +633,28 @@ const getRemarkEdits = async (reason, drugKey) => {
 };
 const getRemarks = async (reason, drugKey) => {
     const { rows } = await pool.query(
-        'SELECT * FROM review_remarks WHERE reason = $1 AND drug_key = $2 ORDER BY at DESC', [reason, drugKey]);
+        'SELECT * FROM review_remarks WHERE reason = $1 AND drug_key = $2 AND deleted_at IS NULL ORDER BY at DESC', [reason, drugKey]);
+    return rows.map(mapRemark);
+};
+// Remove a remark: hidden from every list, kept in the table with who removed
+// it and when. -> the remark as it was, or null if it was already gone.
+const removeRemark = async (id, actor) => {
+    const before = await getRemark(id);
+    if (!before || before.deletedAt) return null;
+    await pool.query('UPDATE review_remarks SET deleted_at = $2, deleted_by = $3 WHERE id = $1 AND deleted_at IS NULL',
+        [id, Date.now(), actor || null]);
+    return before;
+};
+// the removed remarks on one drug, for the timeline's "Remark removed"
+const getRemovedRemarks = async (reason, drugKey) => {
+    const { rows } = await pool.query(
+        'SELECT * FROM review_remarks WHERE reason = $1 AND drug_key = $2 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC', [reason, drugKey]);
     return rows.map(mapRemark);
 };
 // every remark, newest first — demand.aggregate() groups them per drug in one
 // pass rather than one query per row
 const getAllRemarks = async () => {
-    const { rows } = await pool.query('SELECT * FROM review_remarks ORDER BY at DESC');
+    const { rows } = await pool.query('SELECT * FROM review_remarks WHERE deleted_at IS NULL ORDER BY at DESC');
     return rows.map(mapRemark);
 };
 
@@ -1095,7 +1111,7 @@ module.exports = {
     addPrescription, getPrescriptions, getPrescriptionsByIds,
     listPrescriptionsPage, deletePrescriptionsByIds, deletePrescriptionsByRange, restorePrescriptionsByIds,
     getStatus, setStatus,
-    getAllStatuses, addRemark, getRemarks, getAllRemarks, getRemark, updateRemark, getRemarkEdits, getStatusEvents, findSimilarProducts,
+    getAllStatuses, addRemark, getRemarks, getAllRemarks, getRemark, updateRemark, getRemarkEdits, removeRemark, getRemovedRemarks, getStatusEvents, findSimilarProducts,
     searchCatalog, getCatalogRow, updateCatalogRow, mergeCatalogRows, restoreCatalogRow,
     claimImport, searchSupplies, findSupply, getSupply, addSupplyToCatalog, listSuppliesPage, updateSupply, mergeSupplies, restoreSupply, getAllSupplies, suppliesNotSeenSince,
     createImport, getImport, updateImport, listImports,

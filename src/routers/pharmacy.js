@@ -16,6 +16,7 @@ router.get('/remarks', c.remarks);
 router.post('/remarks', c.addRemark);
 // correcting one is the pharmacy head's alone; the model enforces it
 router.post('/remarks/:id', c.editRemark);
+router.delete('/remarks/:id', c.removeRemark);
 
 // catalog: "what else exists under this generic" is read-only and open to
 // both roles; adding to Bizbox by hand is the pharmacy head's alone
