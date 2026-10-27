@@ -71,6 +71,15 @@
 .rx-sign .sig-cap { font-size: 8.5px; text-align: center; padding-top: 1px; }
 .rx-foot .docfld { font-size: 8.5px; margin-top: 1px; }
 
+/* IT's footnote (js/slip.js) — size, alignment, weight come inline from the setting */
+.rx-note { flex: none; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.2; }
+.rx-head + .rx-note { margin-top: 4px; }          /* top: under the hospital header */
+.rx-body > .rx-note { margin-bottom: 4px; }       /* above the medicines */
+.rx-foot + .rx-note, .rx-body + .rx-note { margin-top: 5px; }
+.rx-note.frame-line { border-top: 1px solid #000; padding-top: 3px; }
+.rx-head + .rx-note.frame-line, .rx-body > .rx-note.frame-line { border-top: 0; border-bottom: 1px solid #000; padding: 0 0 3px; }
+.rx-note.frame-box { border: 1px solid #000; padding: 2px 5px; }
+
 @media print {
     html, body { margin: 0; padding: 0; background: #fff; }
     .rx-page {

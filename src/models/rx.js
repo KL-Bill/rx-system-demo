@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const db = require('../_db/db_functions');
 const demand = require('./demand');
+const settings = require('./settings');
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -113,18 +114,21 @@ const createRx = async ({ stationId, patient, address, age, sex, doctor, items }
     }));
 
     const doc = doctor || {};
+    // the slip prints the footnote as it is now; the copy kept here is what a reprint shows
+    const footnote = await settings.activeFootnote();
     const saved = await db.addPrescription({
         stationId,
         department: station.department,
         doctor: { name: (doc.name || '').trim(), license: (doc.license || '').trim(), ptr: (doc.ptr || '').trim(), s2: (doc.s2 || '').trim() },
         patient: patient || '', address: address || '', age: age || '', sex: sex || '',
         items: resolved,
+        ...(footnote ? { footnote } : {}),
     });
 
     demand.forgetItems();       // the pharmacy screens must see it on their next look
 
     // the kiosk keeps this receipt; it is the only way back to this prescription from the nurse page
-    return { station, items: resolved, id: saved.id, createdAt: saved.createdAt, receipt: receiptFor(saved.id) };
+    return { station, items: resolved, footnote, id: saved.id, createdAt: saved.createdAt, receipt: receiptFor(saved.id) };
 };
 
 // "Previous prescriptions": search what this kiosk printed.
@@ -151,6 +155,8 @@ const history = async ({ receipts, q, from, to }) => {
 
 // a reprint records nothing new (demand is never counted twice); it is only
 // checked and logged
+const footnote = async () => ({ footnote: await settings.activeFootnote() });
+
 const reprint = async ({ id, receipt }) => {
     if (!receiptOk(id, receipt)) throw httpError(403, 'This prescription was not printed on this computer');
     const [rx] = await db.getPrescriptionsByIds([id]);
@@ -158,4 +164,4 @@ const reprint = async ({ id, receipt }) => {
     return { id: rx.id, station: rx.station, department: rx.department, createdAt: rx.createdAt };
 };
 
-module.exports = { listStations, listDoctors, suggest, forms, getProduct, supplies, getSupply, createRx, history, reprint };
+module.exports = { listStations, listDoctors, suggest, forms, getProduct, supplies, getSupply, createRx, history, reprint, footnote };

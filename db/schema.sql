@@ -293,3 +293,12 @@ CREATE TABLE backups (
 );
 
 CREATE INDEX idx_backups_at ON backups (at DESC);
+
+-- Small settings IT changes from the console, one JSON value per key.
+-- 'rx_footnote': the line printed on every prescription (see models/settings.js)
+CREATE TABLE app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at BIGINT,
+  updated_by TEXT
+);

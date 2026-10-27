@@ -107,6 +107,7 @@
             doctor: p.doctor || {},
             // sig included so Prescription Mode shows exactly what was printed
             meds: p.items.map((it) => ({ label: medLabelOf(it), quantity: it.quantity, sig: it.sig || '', cls: reasonCls(it.reason) })),
+            footnote: p.footnote || null,
         };
     };
 

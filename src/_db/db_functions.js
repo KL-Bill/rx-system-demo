@@ -1098,6 +1098,19 @@ const countRows = async (table) => {
     return rows[0].n;
 };
 
+// ---------- settings ----------
+const getSetting = async (key) => {
+    const { rows } = await pool.query('SELECT value, updated_at, updated_by FROM app_settings WHERE key = $1', [key]);
+    return rows[0] ? { value: rows[0].value, updatedAt: toNum(rows[0].updated_at), updatedBy: rows[0].updated_by } : null;
+};
+const setSetting = async (key, value, actor) => {
+    await pool.query(
+        `INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+        [key, JSON.stringify(value), Date.now(), actor || null],
+    );
+};
+
 module.exports = {
     norm, drugKey,
     getUserByUsername, getUserById, getAdmins,
@@ -1117,4 +1130,5 @@ module.exports = {
     createImport, getImport, updateImport, listImports,
     exclusionKey, getExclusions, addExclusion, removeExclusion, productsNotSeenSince,
     addAudit, getAudit,
+    getSetting, setSetting,
 };

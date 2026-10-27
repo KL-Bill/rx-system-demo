@@ -5,6 +5,7 @@ const c = require('../controllers/rx');
 
 router.get('/stations', c.stations);
 router.get('/doctors', c.doctors);
+router.get('/footnote', c.footnote);
 router.get('/suggest', c.suggest);
 router.get('/forms', c.forms);
 router.get('/product', c.product);

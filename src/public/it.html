@@ -6,6 +6,7 @@
     <title>IT Console — TMC</title>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="/css/shell.css">
+    <link rel="stylesheet" href="/css/print.css">
     <link rel="stylesheet" href="/css/it.css">
 </head>
 <body>
@@ -32,6 +33,7 @@
                 <button class="tab" data-tab="backups" type="button">Backups</button>
                 <button class="tab" data-tab="medicines" type="button">Medicines</button>
                 <button class="tab" data-tab="master" type="button">Doctors &amp; Stations</button>
+                <button class="tab" data-tab="footnote" type="button">Rx Footnote</button>
             </div>
         </div>
 
@@ -55,6 +57,7 @@
                     <option value="backup_created">Backup taken</option>
                     <option value="backup_downloaded">Backup downloaded</option>
                     <option value="backup_restored">Backup restored</option>
+                    <option value="footnote_updated">Rx footnote changed</option>
                 </select>
                 <input type="date" id="from" style="max-width:160px">
                 <input type="date" id="to" style="max-width:160px">
@@ -187,6 +190,64 @@
                 </div>
             </div>
         </div>
+
+        <!-- ===== Rx footnote ===== -->
+        <div class="content pane" id="pane-footnote" style="display:none">
+            <div class="fn-grid">
+                <div class="card imp-card">
+                    <div class="imp-h">
+                        <div><h2>Prescription footnote</h2><p class="sub" style="margin:0">A line printed on every prescription slip — a promo, a reminder. The preview shows exactly how it prints. Changes apply to slips printed after you save; past prescriptions keep the footnote they were printed with.</p></div>
+                    </div>
+                    <label class="mb-check fn-on"><input type="checkbox" id="fnEnabled"> Print the footnote on prescriptions</label>
+
+                    <label for="fnText">Text <span class="fn-count" id="fnCount"></span></label>
+                    <textarea id="fnText" rows="3" maxlength="200" placeholder="e.g. Promo: Automatic 18% discount for cash purchase at TMC Pharmacy"></textarea>
+
+                    <label for="fnPos">Where on the slip</label>
+                    <select id="fnPos">
+                        <option value="top">Top — under the hospital name</option>
+                        <option value="above_meds">Above the medicines (before ℞)</option>
+                        <option value="below_meds">Below the medicines (above the signature)</option>
+                        <option value="bottom">Bottom — under the doctor's details</option>
+                    </select>
+
+                    <label>Alignment</label>
+                    <div class="fn-seg" id="fnAlign">
+                        <button type="button" data-v="left">Left</button>
+                        <button type="button" data-v="center">Center</button>
+                        <button type="button" data-v="right">Right</button>
+                    </div>
+
+                    <label for="fnSize">Text size <span class="fn-count" id="fnSizeVal"></span></label>
+                    <input type="range" id="fnSize" min="6" max="14" step="1">
+
+                    <label>Style</label>
+                    <div class="fn-row">
+                        <label class="mb-check"><input type="checkbox" id="fnBold"> <b>Bold</b></label>
+                        <label class="mb-check"><input type="checkbox" id="fnItalic"> <i>Italic</i></label>
+                    </div>
+
+                    <label for="fnFrame">Border</label>
+                    <select id="fnFrame">
+                        <option value="none">None</option>
+                        <option value="line">Line separating it</option>
+                        <option value="box">Box around it</option>
+                    </select>
+
+                    <div class="fn-err" id="fnErr"></div>
+                    <div class="fn-actions">
+                        <span class="muted fn-saved" id="fnSaved"></span>
+                        <button class="ghost sm" id="fnReset" type="button">Reset to default</button>
+                        <button class="ghost sm" id="fnRevert" type="button">Discard changes</button>
+                        <button id="fnSave" type="button">Save</button>
+                    </div>
+                </div>
+                <div class="card imp-card">
+                    <div class="imp-h"><div><h2>Preview</h2><p class="sub" style="margin:0" id="fnPrevNote">A sample slip, actual size.</p></div></div>
+                    <div class="fn-prev" id="fnPreview"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ===== doctor / station modal (one form, two uses) ===== -->
@@ -297,6 +358,7 @@
     <script src="/js/bizbox-import.js"></script>
     <script src="/js/formulary.js"></script>
     <script src="/js/daterange.js"></script>
+    <script src="/js/slip.js"></script>
     <script src="/js/it.js"></script>
 </body>
 </html>

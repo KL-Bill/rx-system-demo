@@ -9,6 +9,7 @@
     // kind 'supply': genericName carries the description, supplyCode its Bizbox code
     const items = [];
     let savedRxId = null, dragFrom = null, masterDoctors = [];
+    let footnote = null;      // IT's line on every slip (null when turned off)
     let localDoctors = JSON.parse(localStorage.getItem('rx_doctors') || '{}');
 
     // ----- stations -----
@@ -32,6 +33,7 @@
 
     // ----- doctors (master list + localStorage for PTR/S2 and remembered details) -----
     masterDoctors = (await api('/api/rx/doctors')).data.doctors || [];
+    footnote = (await api('/api/rx/footnote')).data.footnote || null;
     function mergedDoctors() {
         const map = new Map();
         masterDoctors.forEach((d) => map.set(d.name.toLowerCase(), { name: d.name, license: d.license || '', ptr: '', s2: '' }));
@@ -313,6 +315,7 @@
                 sig: it.sig || '',
                 cls: it.isNew ? 'isnew' : (it.outOfStock ? 'nostock' : ''),
             })),
+            footnote,
         };
     }
     function renderPreview() { $('preview').innerHTML = slipPagesHtml(rxData()); }
@@ -379,6 +382,8 @@
                 return;
             }
             savedRxId = true;
+            // print what the server recorded, so a reprint later reads the same
+            footnote = res.data.footnote || null;
             saveDoctor();
             keepReceipt(res.data);
         }
@@ -422,6 +427,7 @@
             patient: p.patient, address: p.address, age: p.age, sex: p.sex,
             doctor: p.doctor || {},
             meds: (p.items || []).map((it) => ({ label: medLabelOf(it), quantity: it.quantity, sig: it.sig || '', cls: reasonCls(it.reason) })),
+            footnote: p.footnote || null,     // as it was printed then
         };
     }
 

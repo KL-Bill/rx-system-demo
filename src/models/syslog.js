@@ -5,6 +5,7 @@ const db = require('../_db/db_functions');
 //   rx_created, rx_reprinted                  (controllers/rx.js — no patient data)
 //   user_created, password_reset,
 //   user_deactivated, user_reactivated        (models/it.js)
+//   footnote_updated                          (controllers/it.js)
 //   backup_ok, backup_failed                  (backups table, not here — see scripts/backup-db.ps1)
 
 // fire-and-forget: a broken system log must never break the request it rides on

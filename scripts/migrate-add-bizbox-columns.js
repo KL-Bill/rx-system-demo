@@ -158,6 +158,17 @@ async function main() {
         await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS deleted_at BIGINT');
         await client.query('ALTER TABLE review_remarks ADD COLUMN IF NOT EXISTS deleted_by TEXT');
 
+        // 10. small settings IT can change from the console, one JSON value
+        //     per key — first: the footnote printed on every prescription
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY,
+              value JSONB NOT NULL,
+              updated_at BIGINT,
+              updated_by TEXT
+            )
+        `);
+
         await client.query(`
             CREATE TABLE IF NOT EXISTS catalog_import_exclusions (
               description_key TEXT PRIMARY KEY,

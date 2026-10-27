@@ -32,4 +32,8 @@ router.get('/stations', c.stations);
 router.post('/stations', c.createStation);
 router.post('/stations/:id', c.updateStation);
 
+// the footnote printed on every prescription
+router.get('/footnote', c.footnote);
+router.post('/footnote', c.saveFootnote);
+
 module.exports = router;

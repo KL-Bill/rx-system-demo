@@ -1,5 +1,6 @@
 const itModel = require('../models/it');
 const { logEvent } = require('../models/syslog');
+const settings = require('../models/settings');
 
 const handle = (res, err) => {
     if (err.status) return res.status(err.status).json({ success: false, message: err.message });
@@ -182,9 +183,22 @@ const updateStation = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
+const footnote = async (req, res) => {
+    try { return res.json({ success: true, ...(await settings.getFootnote()) }); }
+    catch (err) { return handle(res, err); }
+};
+const saveFootnote = async (req, res) => {
+    try {
+        const out = await settings.saveFootnote(req.body, req.user?.name);
+        logEvent('footnote_updated', req, { target: out.footnote.enabled ? out.footnote.text.slice(0, 80) : '(turned off)', details: { from: out.before, to: out.footnote } });
+        return res.json({ success: true, ...(await settings.getFootnote()) });
+    } catch (err) { return handle(res, err); }
+};
+
 module.exports = {
     logs, audit, users, createUser, resetPassword, setActive,
     backups, createBackup, downloadBackup, restoreBackup, health,
     prescriptions, deletePrescriptions, restorePrescriptions,
     doctors, createDoctor, updateDoctor, deleteDoctor, restoreDoctor, stations, createStation, updateStation,
+    footnote, saveFootnote,
 };

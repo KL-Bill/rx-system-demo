@@ -26,6 +26,7 @@
         backup_created: ['green', 'Backup taken'],
         backup_downloaded: ['amber', 'Backup downloaded'],
         backup_restored: ['red', 'Backup RESTORED'],
+        footnote_updated: ['navy', 'Footnote changed'],
         rx_deleted: ['red', 'Rx DELETED'],
     };
     const eventBadge = (t) => {
@@ -54,6 +55,7 @@
             ({
                 syslog: loadLogs, audit: loadAudit, accounts: loadUsers,
                 prescriptions: loadPrescriptions, backups: loadBackups, medicines: loadMedicines, master: loadMaster,
+                footnote: loadFootnote,
             })[btn.dataset.tab]();
         };
     });
@@ -63,6 +65,76 @@
     function loadMedicines() {
         if (!importUi) importUi = RxFormulary.mount($('importRoot'));
     }
+
+    // ---------- Rx footnote: the line every slip prints, previewed with the slip renderer ----------
+    let fnSaved = null, fnDefaults = null, fnAlign = 'center';
+    const SAMPLE_RX = {
+        date: '10/27/26', time: '9:30 AM',
+        patient: 'Juan Dela Cruz', address: 'Apokon, Tagum City', age: '45', sex: 'M',
+        doctor: { name: 'Maria Santos', license: '0123456', ptr: '7654321', s2: '' },
+        meds: [
+            { label: 'Amoxicillin (Amoxil) Capsule 500 mg', quantity: 21, sig: '1 cap every 8 hours for 7 days', cls: '' },
+            { label: 'Paracetamol (Biogesic) Tablet 500 mg', quantity: 10, sig: '1 tab every 4 hours as needed for fever', cls: '' },
+        ],
+    };
+    const fnForm = () => ({
+        enabled: $('fnEnabled').checked,
+        text: $('fnText').value,
+        position: $('fnPos').value,
+        align: fnAlign,
+        size: Number($('fnSize').value),
+        bold: $('fnBold').checked,
+        italic: $('fnItalic').checked,
+        frame: $('fnFrame').value,
+    });
+    function fnFill(f) {
+        $('fnEnabled').checked = !!f.enabled;
+        $('fnText').value = f.text || '';
+        $('fnPos').value = f.position;
+        fnAlign = f.align;
+        $('fnSize').value = f.size;
+        $('fnBold').checked = !!f.bold;
+        $('fnItalic').checked = !!f.italic;
+        $('fnFrame').value = f.frame;
+        fnRender();
+    }
+    function fnRender() {
+        const f = fnForm();
+        $('fnCount').textContent = `${f.text.length} / 200`;
+        $('fnSizeVal').textContent = `${f.size}px`;
+        document.querySelectorAll('#fnAlign button').forEach((b) => b.classList.toggle('on', b.dataset.v === fnAlign));
+        $('fnPreview').classList.toggle('fn-off', !f.enabled);
+        $('fnPrevNote').textContent = f.enabled ? 'A sample slip, actual size.' : 'The footnote is off — slips print without it.';
+        $('fnPreview').innerHTML = slipPagesHtml({ ...SAMPLE_RX, footnote: f.enabled && f.text.trim() ? f : null });
+        const dirty = !!fnSaved && JSON.stringify({ ...f, text: f.text.trim() }) !== JSON.stringify(fnSaved);
+        $('fnSave').disabled = !dirty;
+        $('fnRevert').style.display = dirty ? '' : 'none';
+    }
+    const fnSavedLine = (d) => (d.updatedAt ? `Last saved ${fmtDT(d.updatedAt)} by ${d.updatedBy || '—'}` : 'Using the default — not changed yet');
+    async function loadFootnote() {
+        const res = await api('/api/it/footnote');
+        if (!res.ok) { $('fnErr').textContent = res.data.message || 'Could not load the footnote.'; return; }
+        fnSaved = res.data.footnote; fnDefaults = res.data.defaults;
+        $('fnSaved').textContent = fnSavedLine(res.data);
+        $('fnErr').textContent = '';
+        fnFill(fnSaved);
+    }
+    ['fnEnabled', 'fnText', 'fnPos', 'fnSize', 'fnBold', 'fnItalic', 'fnFrame'].forEach((id) => {
+        $(id).addEventListener('input', fnRender);
+        $(id).addEventListener('change', fnRender);
+    });
+    document.querySelectorAll('#fnAlign button').forEach((b) => { b.onclick = () => { fnAlign = b.dataset.v; fnRender(); }; });
+    $('fnReset').onclick = () => { if (fnDefaults) fnFill(fnDefaults); };     // the form only; Save makes it stick
+    $('fnRevert').onclick = () => { if (fnSaved) fnFill(fnSaved); };
+    $('fnSave').onclick = async () => {
+        $('fnErr').textContent = '';
+        $('fnSave').disabled = true;
+        const res = await api('/api/it/footnote', { body: fnForm() });
+        if (!res.ok) { $('fnErr').textContent = res.data.message || 'Could not save. Try again in a moment.'; fnRender(); return; }
+        fnSaved = res.data.footnote;
+        $('fnSaved').textContent = fnSavedLine(res.data);
+        fnFill(fnSaved);
+    };
 
     // ---------- doctors & stations ----------
     let doctors = [], stations = [];

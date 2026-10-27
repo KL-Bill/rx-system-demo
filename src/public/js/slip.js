@@ -7,7 +7,10 @@
  *
  * rx = { date, time, patient, address, age, sex,
  *        doctor: { name, license, ptr, s2 },
- *        meds:  [ { label, quantity, cls } ] }   cls: 'isnew' | 'nostock' | ''
+ *        meds:  [ { label, quantity, cls } ],   cls: 'isnew' | 'nostock' | ''
+ *        footnote: { text, position, align, size, bold, italic, frame } | null }
+ * The footnote is IT's (see models/settings.js); it repeats on every page and
+ * the pagination below already leaves room for it.
  */
 (function (global) {
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -15,7 +18,7 @@
     ));
     const withDr = (n) => (!n ? '' : (/^dr\.?\s/i.test(n) ? n : 'Dr. ' + n));
 
-    const headHtml = (rx) => `
+    const headHtml = (rx, topNote = '') => `
         <div class="rx-head">
             <img class="rx-logo-img" src="/img/logo.jpg" alt="">
             <div class="rx-htext">
@@ -24,6 +27,7 @@
                 <div class="rx-addr">Purok 3-Rattan, Apokon, Tagum City, Davao del Norte</div>
             </div>
         </div>
+        ${topNote}
         <div class="rx-date">Date: <u>${esc(rx.date)}</u> &nbsp; Time: <u>${esc(rx.time)}</u></div>
         <div class="rx-fld">Patient's Name: <u>${esc(rx.patient)}</u></div>
         <div class="rx-fld">Address: <u>${esc(rx.address)}</u></div>
@@ -61,16 +65,35 @@
             </div>
         </div>`;
 
+    const NOTE_POSITIONS = ['top', 'above_meds', 'below_meds', 'bottom'];
+    const noteHtml = (f) => {
+        const pick = (v, ok, d) => (ok.includes(v) ? v : d);
+        const size = Math.min(14, Math.max(6, Number(f.size) || 8));
+        const style = [
+            `text-align:${pick(f.align, ['left', 'center', 'right'], 'center')}`,
+            `font-size:${size}px`,
+            `font-weight:${f.bold ? 'bold' : 'normal'}`,
+            `font-style:${f.italic ? 'italic' : 'normal'}`,
+        ].join(';');
+        return `<div class="rx-note frame-${pick(f.frame, ['none', 'line', 'box'], 'none')}" style="${style}">${esc(f.text)}</div>`;
+    };
+
     function pageEl(rx) {
+        const f = rx.footnote && String(rx.footnote.text || '').trim() ? rx.footnote : null;
+        const pos = f && (NOTE_POSITIONS.includes(f.position) ? f.position : 'bottom');
+        const note = (at) => (pos === at ? noteHtml(f) : '');
         const el = document.createElement('div');
         el.className = 'rx-page';
         el.innerHTML = `<div class="rx-sheet">
-            ${headHtml(rx)}
+            ${headHtml(rx, note('top'))}
             <div class="rx-body">
+                ${note('above_meds')}
                 <div class="rx-symbol">℞</div>
                 <div class="rx-meds"></div>
             </div>
+            ${note('below_meds')}
             ${footHtml(rx)}
+            ${note('bottom')}
         </div>`;
         return el;
     }

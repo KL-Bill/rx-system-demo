@@ -15,6 +15,11 @@ const doctors = async (req, res) => {
     try { return res.json({ success: true, doctors: await rxModel.listDoctors() }); }
     catch (err) { return handle(res, err); }
 };
+// what the slip prints under IT's settings (null when turned off)
+const footnote = async (req, res) => {
+    try { return res.json({ success: true, ...(await rxModel.footnote()) }); }
+    catch (err) { return handle(res, err); }
+};
 // query params arrive as strings (or arrays, on a repeated key) — flatten and
 // cap them before they reach a query
 const str = (v) => String(Array.isArray(v) ? v[0] : (v ?? '')).slice(0, 100);
@@ -90,4 +95,4 @@ const reprint = async (req, res) => {
     } catch (err) { return handle(res, err); }
 };
 
-module.exports = { stations, doctors, suggest, forms, product, supplies, supply, create, history, reprint };
+module.exports = { stations, doctors, footnote, suggest, forms, product, supplies, supply, create, history, reprint };
