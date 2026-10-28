@@ -13,3 +13,10 @@ src/_db/medicines.backup-*.json
 
 # per-server deploy files, not part of the image
 pod.yaml
+
+# server-side folders that live in the project dir on some servers: the
+# 12-hourly pg_dumps (scripts/backup-db.ps1), logs, and dev docs/screenshots.
+# Copying them made the image grow by every backup taken.
+backups
+logs
+docs
