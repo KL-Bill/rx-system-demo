@@ -325,8 +325,9 @@ const health = async () => {
 const clean = (x) => String(x || '').replace(/\s+/g, ' ').trim();
 
 const listDoctors = async () => {
-    const doctors = await db.getDoctorsAll();
-    return Promise.all(doctors.map(async (d) => ({ ...d, prescriptions: await db.countPrescriptionsByDoctorName(d.name) })));
+    const [doctors, counts] = await Promise.all([db.getDoctorsAll(), db.countPrescriptionsPerDoctor()]);
+    // same match as countPrescriptionsByDoctorName: lower(trim(name))
+    return doctors.map((d) => ({ ...d, prescriptions: counts.get(String(d.name).trim().toLowerCase()) || 0 }));
 };
 const createDoctor = async ({ name, license }) => {
     name = clean(name); license = clean(license);

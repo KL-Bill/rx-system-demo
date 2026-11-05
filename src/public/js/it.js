@@ -296,7 +296,7 @@
                 <td>${escapeHtml(r.actor || '—')}${r.role ? ` <span class="badge gray">${escapeHtml(r.role)}</span>` : ''}</td>
                 <td>${escapeHtml(r.target || '—')}</td>
                 <td class="mono">${escapeHtml(r.ip || '—')}</td>
-                <td class="mono">${r.details ? escapeHtml(Object.entries(r.details).map(([k, v]) => `${k}: ${v}`).join(' · ')) : ''}</td>
+                <td class="mono">${r.details ? escapeHtml(Object.entries(r.details).map(([k, v]) => `${k}: ${v && typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ')) : ''}</td>
             </tr>`).join('');
 
         const pgTotal = Math.max(1, Math.ceil(logTotal / PAGE));

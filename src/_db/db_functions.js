@@ -85,6 +85,15 @@ const updateDoctor = async (id, { name, license }) => {
 };
 const deleteDoctor = async (id) => (await pool.query('UPDATE doctors SET deleted_at = $2 WHERE id = $1 AND deleted_at IS NULL', [id, Date.now()])).rowCount;
 const restoreDoctor = async (id) => (await pool.query('UPDATE doctors SET deleted_at = NULL WHERE id = $1', [id])).rowCount;
+// Every doctor's count in one pass. Counting per doctor fires one full scan
+// per name — a few hundred at once on the IT page, which drains the pool and
+// fails the request once prescriptions number in the hundreds of thousands.
+const countPrescriptionsPerDoctor = async () => {
+    const { rows } = await pool.query(
+        `SELECT lower(trim(payload -> 'doctor' ->> 'name')) AS k, count(*)::int AS n
+         FROM prescriptions WHERE deleted_at IS NULL GROUP BY 1`);
+    return new Map(rows.map((r) => [r.k, r.n]));
+};
 const countPrescriptionsByDoctorName = async (name) => {
     const { rows } = await pool.query(
         `SELECT count(*)::int AS n FROM prescriptions WHERE deleted_at IS NULL AND lower(trim(payload -> 'doctor' ->> 'name')) = lower(trim($1))`, [name]);
@@ -1118,7 +1127,7 @@ module.exports = {
     addSystemLog, getSystemLogs, countSystemLogs,
     getBackups, getBackupByFile, addBackup, getBackupFiles, countRows,
     getStations, getStation, getDoctors,
-    getDoctor, getDoctorsAll, insertDoctor, updateDoctor, deleteDoctor, restoreDoctor, countPrescriptionsByDoctorName, renamePrescriptionDoctor,
+    getDoctor, getDoctorsAll, insertDoctor, updateDoctor, deleteDoctor, restoreDoctor, countPrescriptionsByDoctorName, countPrescriptionsPerDoctor, renamePrescriptionDoctor,
     insertStation, updateStation, countPrescriptionsByStation, renameStationDepartment,
     strengthLabel, getGenerics, suggestOptions, findProduct, findProductByDescription, getFormNames, addToCatalog,
     addPrescription, getPrescriptions, getPrescriptionsByIds,

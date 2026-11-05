@@ -624,12 +624,10 @@ npm run watch                 # nodemon
 ## Not yet done
 
 - CI/CD (auto-deploy on git push) — deliberately out of scope for now, revisit later.
-- Two of the six manuals in `docs/*.docx` are still pre-Bizbox: **System
-  Overview and Reference** and **Codebase Documentation** (the latter renders
-  `docs/CODEBASE.md`, so edit the Markdown first). Regenerate them with
-  `make-overview.js` / `make-codebase.js` in `docs/screenshot-tools/`.
-  The **Nurse**, **Pharmacy**, **IT** and **Troubleshooting** manuals were
-  rebuilt on 2026-09-17 against the current screens (`cap-nurse26.js`,
-  `cap-pharmacy26.js`, `cap-it26.js` take the screenshots; the `make-*.js`
-  scripts build the documents). Note `docs/` is gitignored — the manuals live
-  on the server machine only.
+- The six manuals in `docs/*.docx` were last rebuilt on 2026-11-05, covering
+  everything up to `e2908c5`: the review History, remark correction and
+  removal, the Excel export, the Rx footnote and the full update commands.
+  `cap-nurse26.js`, `cap-pharmacy26.js` and `cap-it26.js` take the September
+  screenshots, `cap-v4.js` the October ones; the `make-*.js` scripts build the
+  documents, and `make-codebase.js` renders `docs/CODEBASE.md`. Note `docs/` is
+  gitignored — the manuals live on this machine only.

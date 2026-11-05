@@ -190,7 +190,13 @@ const footnote = async (req, res) => {
 const saveFootnote = async (req, res) => {
     try {
         const out = await settings.saveFootnote(req.body, req.user?.name);
-        logEvent('footnote_updated', req, { target: out.footnote.enabled ? out.footnote.text.slice(0, 80) : '(turned off)', details: { from: out.before, to: out.footnote } });
+        // only what changed, one "old → new" per setting, so the log row reads at a glance
+        const show = (v) => (typeof v === 'string' ? `"${v.length > 60 ? `${v.slice(0, 60)}…` : v}"` : String(v));
+        const details = {};
+        Object.keys(out.footnote).forEach((k) => {
+            if (out.before[k] !== out.footnote[k]) details[k] = `${show(out.before[k])} → ${show(out.footnote[k])}`;
+        });
+        logEvent('footnote_updated', req, { target: out.footnote.enabled ? out.footnote.text.slice(0, 80) : '(turned off)', details });
         return res.json({ success: true, ...(await settings.getFootnote()) });
     } catch (err) { return handle(res, err); }
 };
