@@ -139,24 +139,51 @@ try {
             exit 1
         }
 
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            Log "podman machine start (attempt $attempt/3)..."
-            $output = (& $podman machine start | Out-String).Trim()
-            $startExit = $LASTEXITCODE
-            if ($output) { Log $output }
+        $startMachine = {
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                Log "podman machine start (attempt $attempt/3)..."
+                $output = (& $podman machine start $MachineName | Out-String).Trim()
+                $startExit = $LASTEXITCODE
+                if ($output) { Log $output }
 
-            # "already running" is the state we want, but podman reports it as
-            # a non-zero failure. On Hyper-V the VM can also be running while
-            # the host-side proxies are not, so readiness is checked below
-            # either way rather than trusted from this exit code.
-            if ($startExit -eq 0 -or $output -match "already running") { break }
+                # "already running" is the state we want, but podman reports it as
+                # a non-zero failure. On Hyper-V the VM can also be running while
+                # the host-side proxies are not, so readiness is checked below
+                # either way rather than trusted from this exit code.
+                if ($startExit -eq 0 -or $output -match "already running") { break }
 
-            if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
+                if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
+            }
         }
+
+        & $startMachine
 
         # Hyper-V reports the VM as started before the API/ssh forwarding is
         # accepting connections.
-        if (-not (Wait-Until -Test $podmanReady -TimeoutSec 180 -What "the podman API")) {
+        $ready = Wait-Until -Test $podmanReady -TimeoutSec 180 -What "the podman API"
+
+        # After a power cut the machine can be left half-up: podman says it is
+        # "already running" but nothing answers. A clean stop (and, on WSL, a
+        # WSL shutdown) clears that; then start once more. Only done on failure,
+        # so a normal boot never pays for it.
+        if (-not $ready) {
+            Log "podman did not answer - stopping the machine and starting it clean..."
+            $output = (& $podman machine stop $MachineName | Out-String).Trim()
+            if ($output) { Log $output }
+            # "inspect" has no provider field; "list" does (the default machine is starred)
+            $vmType = & $podman machine list --format "{{.Name}} {{.VMType}}" |
+                Where-Object { $_ -match "^$([regex]::Escape($MachineName))\*?\s" } |
+                ForEach-Object { ($_ -split '\s+')[1] }
+            if ($vmType -eq "wsl") {
+                Log "wsl --shutdown"
+                & wsl.exe --shutdown *> $null
+            }
+            Start-Sleep -Seconds 5
+            & $startMachine
+            $ready = Wait-Until -Test $podmanReady -TimeoutSec 180 -What "the podman API (after a clean restart)"
+        }
+
+        if (-not $ready) {
             Log "ERROR: podman machine did not become reachable within 180 s."
             if (-not $elevated) {
                 Log "       This task is NOT running elevated. The Hyper-V provider needs rights to"
